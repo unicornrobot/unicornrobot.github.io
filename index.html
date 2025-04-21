@@ -1,0 +1,1790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P5.js Serial Data Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <style>
+        /* Basic styling for canvas */
+        canvas {
+            display: block;
+            margin: 20px auto;
+            border: 1px solid #ccc;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Ensure buttons and controls are clearly visible and usable */
+        button, select, input {
+            padding: 8px 15px;
+            margin: 5px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover, select:hover {
+            background-color: #f0f0f0;
+        }
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        .status-indicator {
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 6px;
+            font-weight: bold;
+        }
+        .status-disconnected { background-color: #fecaca; color: #991b1b; } /* Red */
+        .status-connected { background-color: #d1fae5; color: #065f46; } /* Green */
+        .status-collecting { background-color: #bfdbfe; color: #1e40af; } /* Blue */
+        .status-finished { background-color: #fef9c3; color: #854d0e; } /* Yellow */
+        .status-error { background-color: #fed7aa; color: #9a3412; } /* Orange */
+    </style>
+</head>
+<body class="bg-gray-100 p-5">
+
+    <!-- Add id="mainContentContainer" here -->
+    <div id="mainContentContainer" class="container mx-auto max-w-4xl bg-white p-6 rounded-lg shadow-md">
+        <h1 id="mainTitle" class="text-2xl font-bold mb-4 text-center text-gray-700">Serial Data Visualizer</h1>
+
+        <div class="controls flex flex-wrap justify-center items-center gap-4 mb-4 p-4 bg-gray-50 rounded-md">
+            <button id="connectButton" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-md shadow">Connect to Serial Device</button>
+
+            <div class="flex items-center gap-2">
+                <label for="collectDuration" class="text-sm font-medium text-gray-600">Collect for (seconds):</label>
+                <input type="number" id="collectDuration" value="10" min="1" class="w-20 border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+            </div>
+
+            <div class="flex items-center gap-1">
+                <input type="checkbox" id="collectIndefinitely" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                <label for="collectIndefinitely" class="text-sm font-medium text-gray-600">Collect Indefinitely</label>
+            </div>
+
+            <button id="startButton" class="bg-green-500 hover:bg-green-600 text-white font-semibold rounded-md shadow" disabled>Start Collection</button>
+            <button id="stopButton" class="bg-red-500 hover:bg-red-600 text-white font-semibold rounded-md shadow" disabled>Stop Collection</button>
+
+            <div class="flex items-center gap-2">
+                <label for="liveVizSelect" class="text-sm font-medium text-gray-600">Live View:</label>
+                <select id="liveVizSelect" class="border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                    <option value="centeredStrips">Centered Strips</option>
+                    <option value="particleEmitters">Particle Emitters</option>
+                    <option value="wovenTapestry">Woven Tapestry</option>
+                    <option value="wovenTapestryOverlay">Woven Tapestry (Overlay)</option>
+                    <option value="none">None</option>
+                    <!-- Add more live viz options here later -->
+                </select>
+            </div>
+
+            <div class="flex flex-col items-center">
+                <label for="vizSelect" class="text-sm font-medium text-gray-600 mb-1">Final Viz:</label>
+                <select id="vizSelect" class="w-full p-1.5 border rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    <option value="lines">Line Graph</option>
+                    <option value="circularPlot">Circular Plot</option>
+                    <option value="radialBars">Radial Bars</option>
+                    <option value="stackedBars">Stacked Bars</option>
+                    <option value="histogram">Histogram</option>
+                    <option value="heatmap">Heatmap</option>
+                    <option value="concentricArcs">Concentric Arcs</option>
+                    <option value="dashboard">Dashboard</option> <!-- Add this line -->
+                </select>
+            </div>
+
+            <!-- NEW Single Container for Overlay Sliders -->
+            <div id="overlayControlsContainer" class="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 p-2 border border-gray-200 rounded-md" style="display: none;"> <!-- Hidden initially, uses flex for layout -->
+
+                <!-- Weft Height Control Group -->
+                <div class="flex items-center gap-2">
+                    <label for="overlayWeftHeightSlider" class="text-sm font-medium text-gray-600">Height:</label>
+                    <input type="range" id="overlayWeftHeightSlider" min="1" max="10" value="4" step="1" class="w-24 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700">
+                    <span id="overlayWeftHeightValue" class="text-sm text-gray-500 w-6 text-right">4</span>
+                </div>
+
+                <!-- Opacity Control Group -->
+                <div class="flex items-center gap-2">
+                    <label for="overlayOpacitySlider" class="text-sm font-medium text-gray-600">Opacity:</label>
+                    <input type="range" id="overlayOpacitySlider" min="0.05" max="1" value="0.7" step="0.05" class="w-24 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700">
+                    <span id="overlayOpacityValue" class="text-sm text-gray-500 w-8 text-right">0.7</span>
+                </div>
+
+                <!-- Speed Control Group -->
+                <div class="flex items-center gap-2">
+                    <label for="overlaySpeedSlider" class="text-sm font-medium text-gray-600">Speed:</label>
+                    <input type="range" id="overlaySpeedSlider" min="0.1" max="5" value="1" step="0.1" class="w-24 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700">
+                    <span id="overlaySpeedValue" class="text-sm text-gray-500 w-8 text-right">1.0</span>
+                </div>
+
+            </div>
+            <!-- End Single Container -->
+
+            <!-- Add Debug Mode Toggle -->
+            <div class="flex items-center gap-1">
+                <input type="checkbox" id="debugModeCheckbox" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                <label for="debugModeCheckbox" class="text-sm font-medium text-gray-600">Debug Raw Values</label>
+            </div>
+            <!-- End Debug Mode Toggle -->
+
+        </div>
+
+        <div id="status" class="status-indicator status-disconnected text-center mb-4">Status: Disconnected</div>
+        <div id="errorDisplay" class="status-indicator status-error text-center mb-4" style="display: none;">Error: None</div>
+        <div id="dataCount" class="text-center text-sm text-gray-500 mb-4">Data points collected: 0</div>
+
+
+        <div id="canvasContainer" class="border rounded-md overflow-hidden shadow">
+            </div>
+    </div>
+
+    <script>
+        // --- Global Variables ---
+        let port; // Serial port object
+        let reader; // Serial port reader
+        let keepReading = false; // Flag to control the reading loop
+        let incomingBuffer = ''; // Buffer for incomplete serial lines
+
+        let isCollecting = false; // Flag for data collection state
+        let collectionStartTime;
+        let collectionTimerId;
+        let collectedData = []; // Array to store collected data [[val1, val2,...], [val1, val2,...]]
+        let expectedDataLength = -1; // To store the number of values per line, determined by first valid data line
+        let lastValidProgress = 0;
+        let absoluteLatestData = null; // Store the very last parsed data line
+        let collectIndefinitely = false; // Flag for indefinite collection
+        let overlayDrawSpeed = 1.0; // Default drawing speed (pixels per frame)
+        let overlayDrawAlpha = 0.7; // Default drawing alpha (0.0 to 1.0)
+        let overlayWeftHeight = 4; // Default height of weft rows (pixels) - NEW
+        let overlayCurrentY = -1; // Current drawing Y position for overlay (-1 indicates reset needed)
+        let isDebugMode = false; // Flag for debug mode state - NEW
+        let originalCanvasHeight = 400; // Store the original height - NEW
+
+        let numberOfTouchSensors = 8;
+
+        let p5Instance; // To hold the p5 sketch instance
+        let currentVisualization = 'lines'; // Default FINAL visualization
+        let currentLiveVisualization = 'centeredStrips'; // Default LIVE visualization
+
+        // --- UI Elements ---
+        const connectButton = document.getElementById('connectButton');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const collectDurationInput = document.getElementById('collectDuration');
+        const collectIndefinitelyCheckbox = document.getElementById('collectIndefinitely');
+        const liveVizSelect = document.getElementById('liveVizSelect');
+        const vizSelect = document.getElementById('vizSelect');
+        const statusDiv = document.getElementById('status');
+        const errorDiv = document.getElementById('errorDisplay');
+        const dataCountDiv = document.getElementById('dataCount');
+        const canvasContainer = document.getElementById('canvasContainer');
+        const overlayControlsContainer = document.getElementById('overlayControlsContainer');
+        const debugModeCheckbox = document.getElementById('debugModeCheckbox'); // NEW Reference
+
+        // Add missing references for Speed slider
+        const overlaySpeedSlider = document.getElementById('overlaySpeedSlider');
+        const overlaySpeedValueSpan = document.getElementById('overlaySpeedValue');
+        // Existing references below
+        const overlayOpacitySlider = document.getElementById('overlayOpacitySlider');
+        const overlayOpacityValueSpan = document.getElementById('overlayOpacityValue');
+        const overlayWeftHeightSlider = document.getElementById('overlayWeftHeightSlider');
+        const overlayWeftHeightValueSpan = document.getElementById('overlayWeftHeightValue');
+
+        // --- Utility Functions ---
+        function updateStatus(message, type) {
+            statusDiv.textContent = `Status: ${message}`;
+            statusDiv.className = `status-indicator text-center mb-4 status-${type}`; // Update class for styling
+        }
+
+        function showError(message) {
+            console.error(message);
+            errorDiv.textContent = `Error: ${message}`;
+            errorDiv.style.display = 'block';
+        }
+
+        function hideError() {
+            errorDiv.style.display = 'none';
+        }
+
+        function updateDataCount() {
+            dataCountDiv.textContent = `Data points collected: ${collectedData.length}`;
+        }
+
+        function updateButtonStates() {
+            const isConnected = port && port.readable;
+            connectButton.disabled = isConnected;
+            startButton.disabled = !isConnected || isCollecting;
+            stopButton.disabled = !isCollecting;
+            collectDurationInput.disabled = isCollecting;
+            collectIndefinitelyCheckbox.disabled = isCollecting;
+        }
+
+        function saveSettings() {
+            const settings = {
+                collectDuration: collectDurationInput.value,
+                collectIndefinitely: collectIndefinitelyCheckbox.checked,
+                liveViz: liveVizSelect.value,
+                finalViz: vizSelect.value,
+                overlaySpeed: overlaySpeedSlider.value,
+                overlayOpacity: overlayOpacitySlider.value,
+                overlayWeftHeight: overlayWeftHeightSlider.value,
+                debugMode: debugModeCheckbox.checked // Add debug mode state
+            };
+            try {
+                localStorage.setItem('visualizerSettings', JSON.stringify(settings));
+                // console.log("Settings saved:", settings); // Optional: for debugging
+            } catch (e) {
+                console.error("Error saving settings to localStorage:", e);
+            }
+        }
+
+        function loadSettings() {
+            try {
+                const savedSettings = localStorage.getItem('visualizerSettings');
+                if (savedSettings) {
+                    const settings = JSON.parse(savedSettings);
+                    console.log("Loading saved settings:", settings); // Optional: for debugging
+
+                    // Apply settings directly to UI elements and global variables
+                    collectDurationInput.value = settings.collectDuration || '10';
+                    collectIndefinitelyCheckbox.checked = settings.collectIndefinitely || false;
+                    liveVizSelect.value = settings.liveViz || 'centeredStrips';
+                    vizSelect.value = settings.finalViz || 'lines'; // Keep 'lines' as default or change if desired
+                    overlaySpeedSlider.value = settings.overlaySpeed || '1.0';
+                    // Load and clamp opacity
+                    let loadedOpacity = parseFloat(settings.overlayOpacity || '0.7');
+                    loadedOpacity = Math.max(0.05, loadedOpacity); // Ensure minimum of 0.05
+                    overlayOpacitySlider.value = loadedOpacity; // Set clamped value to slider
+                    overlayWeftHeightSlider.value = settings.overlayWeftHeight || '4';
+                    debugModeCheckbox.checked = settings.debugMode || false; // Load debug state
+
+                    // Update global variables based on loaded settings
+                    collectIndefinitely = collectIndefinitelyCheckbox.checked;
+                    currentLiveVisualization = liveVizSelect.value;
+                    currentVisualization = vizSelect.value;
+                    overlayDrawSpeed = parseFloat(overlaySpeedSlider.value);
+                    overlayDrawAlpha = loadedOpacity; // Use the clamped loaded value
+                    overlayWeftHeight = parseInt(overlayWeftHeightSlider.value, 10);
+                    isDebugMode = debugModeCheckbox.checked; // Update global debug state
+
+                    // Call the function to update dependent UI AFTER all values are set
+                    updateUIDependentElements();
+
+                } else {
+                     console.log("No saved settings found, using defaults.");
+                     // Ensure dependent UI reflects default values (min opacity is handled by default slider value)
+                     updateUIDependentElements();
+                }
+            } catch (e) {
+                console.error("Error loading or applying settings from localStorage:", e);
+                 // Fallback: Ensure dependent UI reflects default values on error
+                 updateUIDependentElements();
+            }
+        }
+
+        function updateUIDependentElements() {
+            // Update text spans for sliders
+            if (overlaySpeedValueSpan && overlaySpeedSlider) {
+                overlaySpeedValueSpan.textContent = parseFloat(overlaySpeedSlider.value).toFixed(1);
+            }
+            if (overlayOpacityValueSpan && overlayOpacitySlider) {
+                overlayOpacityValueSpan.textContent = parseFloat(overlayOpacitySlider.value).toFixed(2);
+            }
+            if (overlayWeftHeightValueSpan && overlayWeftHeightSlider) {
+                 overlayWeftHeightValueSpan.textContent = parseInt(overlayWeftHeightSlider.value, 10);
+            }
+
+            // Update visibility of the *single* overlay controls container
+            const showOverlayControls = liveVizSelect.value === 'wovenTapestryOverlay';
+            if (overlayControlsContainer) { // Check if the container exists
+                overlayControlsContainer.style.display = showOverlayControls ? 'flex' : 'none'; // Use flex when showing
+            }
+
+            // Update duration input disabled state and appearance
+             if (collectIndefinitelyCheckbox && collectDurationInput) {
+                collectDurationInput.disabled = collectIndefinitelyCheckbox.checked;
+                if (collectIndefinitelyCheckbox.checked) {
+                    collectDurationInput.parentElement.classList.add('opacity-50');
+                } else {
+                    collectDurationInput.parentElement.classList.remove('opacity-50');
+                }
+             }
+        }
+
+        // --- Serial Communication ---
+        async function connectSerial() {
+            hideError();
+            // Reset state variables in case of reconnection
+            expectedDataLength = -1;
+            absoluteLatestData = null;
+            lastValidProgress = 0;
+
+            if ('serial' in navigator) {
+                try {
+                    updateStatus('Checking for previous ports...', 'collecting');
+                    const existingPorts = await navigator.serial.getPorts();
+
+                    // --- Attempt to reconnect to a single remembered port ---
+                    if (existingPorts.length === 1) {
+                        console.log('Attempting to reconnect to previously granted port.');
+                        port = existingPorts[0];
+                        try {
+                            await port.open({ baudRate: 9600 });
+                            updateStatus('Reconnected', 'connected');
+                            keepReading = true;
+                            readLoop(); // Start reading immediately
+                            updateButtonStates();
+                            return; // Exit function successfully
+                        } catch (err) {
+                            console.warn(`Failed to reopen previous port: ${err.message}. Showing selection dialog.`);
+                            port = null; // Reset port if opening failed
+                            // Fall through to requestPort below
+                        }
+                    } else if (existingPorts.length > 1) {
+                         console.log('Multiple previous ports found. Please select one.');
+                         // Fall through to requestPort
+                    } else {
+                         console.log('No previous ports found. Requesting port selection.');
+                         // Fall through to requestPort
+                    }
+                    // ------------------------------------------------------
+
+                    // --- Fallback: Request port selection from user ---
+                    updateStatus('Requesting port selection...', 'collecting');
+                    port = await navigator.serial.requestPort();
+                    await port.open({ baudRate: 9600 });
+
+                    updateStatus('Connected', 'connected');
+                    keepReading = true;
+                    readLoop();
+                    updateButtonStates();
+                    // --------------------------------------------------
+
+                } catch (err) {
+                    // This catch block now handles errors from both getPorts, requestPort, and the initial open call
+                    updateStatus('Connection failed', 'error');
+                    // Avoid showing error if user simply cancelled the requestPort prompt
+                    if (err.name !== 'NotFoundError') {
+                         showError(`Could not open port: ${err.message}`);
+                    } else {
+                         updateStatus('Connection cancelled', 'disconnected'); // Or simply 'Disconnected'
+                    }
+                    port = null;
+                    updateButtonStates();
+                }
+            } else {
+                updateStatus('Web Serial API not supported', 'error');
+                showError('Your browser does not support the Web Serial API. Try Chrome or Edge.');
+            }
+        }
+
+        async function readLoop() {
+            if (!port || !port.readable) {
+                console.warn("Port not available or closed.");
+                keepReading = false;
+                updateStatus('Disconnected', 'disconnected');
+                updateButtonStates();
+                return;
+            }
+
+            // Use TextDecoderStream for easier text handling
+            const textDecoder = new TextDecoderStream();
+            const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+            reader = textDecoder.readable.getReader();
+
+            updateStatus('Reading data...', 'connected');
+
+            try {
+                while (keepReading) {
+                    const { value, done } = await reader.read();
+                    if (done) {
+                        // Allow the serial port to be closed later.
+                        reader.releaseLock();
+                        break;
+                    }
+                    if (value) {
+                        // Process the incoming chunk
+                        processIncomingData(value);
+                    }
+                }
+            } catch (error) {
+                console.error('Error during reading:', error);
+                showError(`Read error: ${error.message}`);
+                updateStatus('Read error', 'error');
+                // Attempt to clean up
+                try {
+                   await reader.cancel();
+                   reader.releaseLock(); // Release lock on error
+                } catch (cancelError) {
+                    console.error('Error cancelling reader:', cancelError);
+                }
+                // Don't close the port here immediately, let disconnect handle it
+                // await disconnectSerial(); // Maybe disconnect on read error?
+            } finally {
+                 // Ensure the lock is always released if the loop terminates unexpectedly
+                if (reader && !reader.closed) {
+                    try {
+                        reader.releaseLock();
+                    } catch(e) {
+                        console.warn("Error releasing reader lock in finally:", e);
+                    }
+                }
+            }
+             // If keepReading became false, it means disconnect was called.
+             // If the loop exited due to 'done', the port might have closed.
+            if (!keepReading) {
+                await disconnectSerial(); // Ensure cleanup if disconnect was initiated
+            } else {
+                 updateStatus('Reading stopped (port closed?)', 'disconnected');
+                 updateButtonStates();
+            }
+        }
+
+        function processIncomingData(chunk) {
+            incomingBuffer += chunk;
+            let newlineIndex;
+
+            // Process buffer line by line
+            while ((newlineIndex = incomingBuffer.indexOf('\n')) >= 0) {
+                const line = incomingBuffer.substring(0, newlineIndex).trim(); // Get line, remove trailing \r if present
+                incomingBuffer = incomingBuffer.substring(newlineIndex + 1); // Remove processed line from buffer
+
+                if (line) { // Only process non-empty lines
+                    parseAndStoreData(line);
+                }
+            }
+            // Keep any remaining partial line in the buffer for the next chunk
+        }
+
+        function parseAndStoreData(line) {
+            const threshold = 20;
+            const padValue = 0;
+
+            try {
+                const values = line.split(',')
+                                   .map(val => val.trim())
+                                   .filter(val => val !== '')
+                                   .map(Number);
+
+                // --- Basic Format/Range Validation ---
+                const isValidFormat = values.every(v => !isNaN(v) && v <= 360); // Allow negatives up to 360
+
+                if (isValidFormat && values.length > 0) {
+                    absoluteLatestData = values;
+
+                    // --- Sensor Control for Overlay Viz ---
+                    if (currentLiveVisualization === 'wovenTapestryOverlay' && values.length >= 13) {
+                        // Speed (using index 10 -> values[10])
+                        const speedValue = values[10];
+                        const newSpeed = p5Instance.map(speedValue, 0, 360, 0.1, 5.0);
+                        overlayDrawSpeed = p5Instance.constrain(newSpeed, 0.1, 5.0);
+
+                        // Opacity (using index 11 -> values[11])
+                        const opacityValue = values[11];
+                        const newAlpha = p5Instance.map(opacityValue, 0, 360, 0.0, 1.0);
+                        overlayDrawAlpha = p5Instance.constrain(newAlpha, 0.05, 1.0); // Enforce minimum 0.05
+
+                        // Weft Height (using index 12 -> values[12])
+                        const weftHeightValue = values[12];
+                        const newWeftHeight = p5Instance.map(weftHeightValue, 0, 360, 1, 10);
+                        overlayWeftHeight = Math.round(p5Instance.constrain(newWeftHeight, 1, 10));
+
+                        // --- Update UI Sliders to Reflect Sensor Values ---
+                        // This ensures sliders track sensors *while this viz is active*
+                        if (overlaySpeedSlider && overlaySpeedValueSpan) {
+                            overlaySpeedSlider.value = overlayDrawSpeed;
+                            overlaySpeedValueSpan.textContent = overlayDrawSpeed.toFixed(1);
+                        }
+                        if (overlayOpacitySlider && overlayOpacityValueSpan) {
+                             overlayOpacitySlider.value = overlayDrawAlpha;
+                             overlayOpacityValueSpan.textContent = overlayDrawAlpha.toFixed(2);
+                        }
+                        if (overlayWeftHeightSlider && overlayWeftHeightValueSpan) {
+                             overlayWeftHeightSlider.value = overlayWeftHeight;
+                             overlayWeftHeightValueSpan.textContent = overlayWeftHeight;
+                        }
+                        // --- End UI Slider Update ---
+                    }
+                    // ------------------------------------
+
+                    // Set expected length based on first valid line during collection
+                     if (isCollecting && expectedDataLength === -1) {
+                         expectedDataLength = values.length;
+                         console.log(`Determined expected data length for this collection: ${expectedDataLength}`);
+                     }
+                } else {
+                    console.warn("Invalid data format/range received:", line, values);
+                    return;
+                }
+                // ---------------------------------------
+
+
+                // --- Threshold Check & Data Storage Logic ---
+                if (isCollecting) {
+                    const meetsThreshold = values.some(v => v > threshold);
+                    if (meetsThreshold) {
+                        if (expectedDataLength === -1) {
+                             expectedDataLength = values.length;
+                             console.log(`Fallback: Determined expected data length for this collection: ${expectedDataLength}`);
+                         }
+
+                        let adjustedValues = [];
+                         if (values.length === expectedDataLength) adjustedValues = values;
+                         else if (values.length < expectedDataLength) { /* Pad */ adjustedValues = [...values]; while (adjustedValues.length < expectedDataLength) adjustedValues.push(padValue); console.warn(`Data line shorter. Padded. Line: "${line}"`); }
+                         else { /* Truncate */ adjustedValues = values.slice(0, expectedDataLength); console.warn(`Data line longer. Truncated. Line: "${line}"`); }
+
+                        collectedData.push(adjustedValues);
+                        updateDataCount();
+
+                        // *** Define durationMs HERE ***
+                        const durationMs = parseInt(collectDurationInput.value, 10) * 1000;
+
+                        // Update progress based on time (only if not indefinite)
+                        if (durationMs > 0 && !collectIndefinitely) {
+                            lastValidProgress = Math.min((Date.now() - collectionStartTime) / durationMs, 1);
+                        }
+                    }
+                }
+                // -------------------------------------------
+
+            } catch (parseError) {
+                 console.error("Error parsing line:", line, parseError);
+            }
+        }
+
+
+        async function disconnectSerial() {
+            try {
+                if (port) {
+                    // First, cancel any ongoing read operations
+                    if (reader) {
+                        await reader.cancel();
+                        await reader.releaseLock();
+                        reader = null;
+                    }
+                    
+                    // Close the port
+                    await port.close();
+                    port = null;
+                    
+                    // Reset state variables
+                    expectedDataLength = -1;
+                    absoluteLatestData = [];
+                    
+                    // Update UI
+                    connectButton.textContent = 'Connect Serial';
+                    statusDiv.textContent = 'Disconnected';
+                    statusDiv.style.color = '#666';
+                    
+                    console.log('Serial port closed successfully');
+                }
+            } catch (error) {
+                console.warn('Error during disconnect:', error);
+                // Force reset of state even if there was an error
+                port = null;
+                reader = null;
+                expectedDataLength = -1;
+                absoluteLatestData = [];
+                
+                // Update UI to reflect disconnected state
+                connectButton.textContent = 'Connect Serial';
+                statusDiv.textContent = 'Disconnected (with error)';
+                statusDiv.style.color = '#666';
+            }
+        }
+
+        async function tryAutoConnectOnLoad() {
+            if (!('serial' in navigator)) return; // Web Serial not supported
+
+            try {
+                console.log("Checking for previously granted ports on load...");
+                const existingPorts = await navigator.serial.getPorts();
+
+                if (existingPorts.length === 1) {
+                    console.log("Found one remembered port. Attempting auto-reconnect...");
+                    port = existingPorts[0];
+                    try {
+                        await port.open({ baudRate: 9600 });
+                        updateStatus('Auto-reconnected', 'connected');
+                        keepReading = true;
+                        readLoop(); // Start reading
+                        updateButtonStates();
+                         // Initialize P5 now that we have a connection
+                         if (!p5Instance) {
+                             p5Instance = new p5(sketch);
+                         } else {
+                             // Optional: Reset p5 state if it existed somehow
+                             p5Instance.clearCanvas?.(); // Use optional chaining
+                         }
+                        console.log("Auto-reconnect successful.");
+                        return true; // Indicate success
+                    } catch (err) {
+                        console.warn(`Failed to auto-reopen remembered port: ${err.message}. Manual connection required.`);
+                        port = null; // Reset port if opening failed
+                        updateStatus('Disconnected (auto-reconnect failed)', 'disconnected');
+                        updateButtonStates();
+                    }
+                } else if (existingPorts.length > 1) {
+                    console.log("Multiple remembered ports found. Manual connection required.");
+                } else {
+                    console.log("No remembered ports found. Manual connection required.");
+                }
+            } catch (err) {
+                console.error("Error during auto-connect check:", err);
+                // Ensure UI reflects disconnected state
+                updateStatus('Disconnected (error)', 'error');
+                 updateButtonStates();
+            }
+            return false; // Indicate auto-connect did not happen or failed
+        }
+
+        // --- Data Collection ---
+        function startCollection() {
+            if (!port || !port.readable) {
+                showError("Not connected to a serial device.");
+                return;
+            }
+            if (isCollecting) return;
+
+            hideError();
+            collectedData = [];
+            // Reset expected length for this specific collection run
+            expectedDataLength = -1;
+            lastValidProgress = 0;
+            absoluteLatestData = null; // Clear latest data from previous run
+            overlayCurrentY = -1; // Reset Y position marker
+            updateDataCount();
+            isCollecting = true;
+            collectionStartTime = Date.now();
+
+            let statusMessage = "";
+            if (collectIndefinitely) {
+                statusMessage = "Collecting data indefinitely...";
+                updateStatus(statusMessage, 'collecting');
+                // Do NOT set the timer
+                clearTimeout(collectionTimerId);
+                collectionTimerId = null; // Explicitly clear timer ID
+            } else {
+                const durationSeconds = parseInt(collectDurationInput.value, 10);
+                const durationMs = durationSeconds * 1000;
+                statusMessage = `Collecting data for ${durationSeconds}s...`;
+                updateStatus(statusMessage, 'collecting');
+                // Set the timer only if not indefinite
+                clearTimeout(collectionTimerId);
+                collectionTimerId = setTimeout(stopCollection, durationMs);
+            }
+
+            updateButtonStates(); // Update buttons after setting isCollecting
+
+            // Prepare p5 canvas
+            if (p5Instance) {
+                 if (p5Instance.sketchInstanceVariables && typeof p5Instance.sketchInstanceVariables.clearParticles === 'function') {
+                    p5Instance.sketchInstanceVariables.clearParticles();
+                 }
+
+                 // Set initial background based on selected live visualization
+                 // Modes that don't clear per frame need an initial clear.
+                 if (currentLiveVisualization === 'centeredStrips' || currentLiveVisualization === 'wovenTapestryOverlay') {
+                     p5Instance.background(240);
+                     if (currentLiveVisualization === 'wovenTapestryOverlay' && p5Instance.height) {
+                         overlayCurrentY = p5Instance.height; // Initialize Y specifically for overlay
+                     }
+                 } else {
+                     // For others (particles, standard tapestry, none), the background
+                     // will be handled within their respective draw cases.
+                     p5Instance.background(240); // General initial clear still okay
+                 }
+
+                 p5Instance.loop(); // Start the p5 draw loop
+            }
+        }
+
+        function stopCollection() {
+            if (!isCollecting) return; // Not collecting
+
+            isCollecting = false;
+            clearTimeout(collectionTimerId); // Clear timer in case stopped manually
+            const collectionEndTime = Date.now();
+            const actualDuration = ((collectionEndTime - collectionStartTime) / 1000).toFixed(1);
+
+            updateStatus(`Collection finished (${actualDuration}s). ${collectedData.length} points captured.`, 'finished');
+            updateButtonStates();
+
+            // Stop the p5 draw loop and trigger a final draw for the selected post-collection visualization
+            if (p5Instance) {
+                p5Instance.noLoop();
+                p5Instance.redraw(); // Redraw one last time with the selected visualization
+            }
+        }
+
+        // --- P5 Sketch Definition ---
+        const sketch = (p) => {
+            let canvasWidth = 600;
+            let canvasHeight = 400;
+
+            // Store sketch-specific variables/functions needed externally
+            // Note: This is a slight workaround for accessing sketch state from global functions
+            p.sketchInstanceVariables = {
+                 particles: [],
+                 clearParticles: () => { p.sketchInstanceVariables.particles = []; }
+            };
+            let particles = p.sketchInstanceVariables.particles; // Local reference
+
+            // Simple Particle class (or object structure)
+            class Particle {
+                constructor(x, y, vx, vy, lifespan, col) {
+                    this.pos = p.createVector(x, y);
+                    this.vel = p.createVector(vx, vy);
+                    this.lifespan = lifespan; // Frames
+                    this.initialLifespan = lifespan;
+                    this.col = col; // p5.color object
+                }
+
+                update() {
+                    this.pos.add(this.vel);
+                    this.lifespan -= 1;
+                }
+
+                display() {
+                    // Fade out as lifespan decreases
+                    let alpha = p.map(this.lifespan, 0, this.initialLifespan, 0, 255);
+                    // Use HSB components from the stored color, but adjust alpha
+                    p.fill(p.hue(this.col), p.saturation(this.col), p.brightness(this.col), alpha / 255); // p5 alpha is 0-1 in HSB
+                    p.noStroke();
+                    p.ellipse(this.pos.x, this.pos.y, 8, 8); // Draw particle as a small circle
+                }
+
+                isDead() {
+                    return this.lifespan <= 0;
+                }
+            }
+
+
+            // Visualization functions are defined within the sketch scope
+            const visualizations = {
+                lines: (data) => {
+                    p.noFill();
+                    p.strokeWeight(1.5); // Set consistent stroke weight
+
+                    if (data.length === 0 || data[0].length === 0) return; // No data
+
+                    const numLines = data[0].length;
+                    const spacing = p.width / (data.length -1 || 1); // Avoid division by zero if only 1 point
+                    const hueStep = 360 / (numLines || 1); // Distribute hues evenly
+
+                    for (let j = 0; j < numLines; j++) {
+                        // --- Set color ONCE per line based on index j ---
+                        const lineHue = (j * hueStep) % 360;
+                        // Using fixed saturation and brightness for clarity between lines
+                        // Adjust alpha (last parameter) for transparency if needed (e.g., 0.8 for 80% opaque)
+                        p.stroke(lineHue, 85, 90, 1.0); 
+                        // ----------------------------------------------
+
+                        p.beginShape();
+                        // Add first point twice for smooth start
+                        const startX = 0;
+                        const startY = p.map(data[0][j] || 0, 0, 360, p.height - 20, 20);
+                        p.curveVertex(startX, startY);
+                        p.curveVertex(startX, startY);
+
+                        for (let i = 0; i < data.length; i++) {
+                            const x = i * spacing;
+                            const value = data[i][j] || 0;
+                            // Map data value (0-360) to canvas height (with padding)
+                            const y = p.map(value, 0, 360, p.height - 20, 20);
+                            
+                            p.curveVertex(x, y);
+                        }
+
+                        // Add last point twice for smooth end
+                        const endX = (data.length - 1) * spacing;
+                        const endY = p.map(data[data.length - 1][j] || 0, 0, 360, p.height - 20, 20);
+                        p.curveVertex(endX, endY);
+                        p.curveVertex(endX, endY);
+                        
+                        p.endShape();
+                    }
+
+                    // Draw axes/labels (optional)
+                    p.stroke(150);
+                    p.strokeWeight(0.5);
+                    p.line(0, p.height - 20, p.width, p.height - 20); // X-axis (bottom)
+                    p.line(0, 20, p.width, 20); // Top guide
+                    p.textAlign(p.LEFT, p.CENTER);
+                    p.noStroke();
+                    p.fill(100);
+                    p.text('0', 5, p.height - 20);
+                    p.text('360', 5, 20);
+                },
+                circles: (data) => {
+                    p.noStroke();
+                    if (data.length === 0 || data[0].length === 0) return;
+
+                    const numStreams = data[0].length;
+                    const maxRadius = p.min(p.width, p.height) / 2 * 0.8; // Max radius for largest circle
+                    const centerX = p.width / 2;
+                    const centerY = p.height / 2;
+
+                    // Use the *last* data point for the visualization
+                    const lastDataPoint = data[data.length - 1];
+
+                    for (let i = 0; i < numStreams; i++) {
+                        const value = lastDataPoint[i] || 0;
+                        const radius = p.map(value, 0, 360, 0, maxRadius);
+                        // Assign different colors based on index
+                        p.fill((i * 60) % 255, 150, 200, 100); // Vary hue, semi-transparent
+                        p.ellipse(centerX, centerY, radius * 2, radius * 2);
+                    }
+                     // Add labels (optional)
+                    p.fill(0);
+                    p.textAlign(p.CENTER, p.CENTER);
+                    p.text(`Last reading: ${lastDataPoint.map(v => v.toFixed(0)).join(', ')}`, centerX, p.height - 20);
+                },
+                radial: (data) => {
+                    p.strokeWeight(2);
+                    if (data.length === 0 || data[0].length === 0) return;
+
+                    const numStreams = data[0].length;
+                    const centerX = p.width / 2;
+                    const centerY = p.height / 2;
+                    const maxLen = p.min(p.width, p.height) / 2 * 0.8;
+                    const angleStep = p.TWO_PI / data.length; // Angle per data point over time
+
+                    for (let j = 0; j < numStreams; j++) {
+                        // Assign color based on stream index
+                        p.stroke((j * 70) % 360, 80, 70); // HSB color mode
+
+                        for (let i = 0; i < data.length; i++) {
+                            const value = data[i][j] || 0;
+                            const len = p.map(value, 0, 360, 0, maxLen);
+                            const angle = i * angleStep - p.HALF_PI; // Start from top
+
+                            const x = centerX + p.cos(angle) * len;
+                            const y = centerY + p.sin(angle) * len;
+
+                            // Draw a line from center to point for each reading
+                            p.line(centerX, centerY, x, y);
+                        }
+                    }
+                },
+                stackedBars: (data) => {
+                    p.noStroke();
+                    if (data.length === 0 || data[0].length === 0) return;
+
+                    const numDataPoints = data.length;
+                    const numStreams = data[0].length;
+                    const barWidth = p.width / numDataPoints;
+                    // Removed maxPossibleTotalValue, as we now normalize each bar to full height
+
+                    for (let i = 0; i < numDataPoints; i++) {
+                        let totalValue = 0;
+                        // Calculate total value for this time step first
+                        for (let j = 0; j < numStreams; j++) {
+                            totalValue += data[i][j] || 0;
+                        }
+
+                        // No longer need totalBarHeight mapping
+                        // const totalBarHeight = p.map(totalValue, 0, maxPossibleTotalValue, 0, p.height);
+
+                        // Draw segments, scaling them to fill p.height proportionally
+                        let segmentStartY = p.height; // Start drawing from the bottom
+                        for (let j = 0; j < numStreams; j++) {
+                            const value = data[i][j] || 0;
+
+                            // Calculate segment height as a proportion of the *total canvas height*
+                            // If totalValue is 0, make segments equal height (or handle as needed)
+                            let segmentHeight = 0;
+                            if (totalValue > 0) {
+                                segmentHeight = (value / totalValue) * p.height;
+                            } else if (numStreams > 0) {
+                                // Handle case where all values are 0: distribute height equally
+                                segmentHeight = p.height / numStreams;
+                            }
+
+                            // Assign color based on stream index (using HSB)
+                            // Use a distinct hue for each stream index j
+                            const hue = (j * (360 / (numStreams || 1))) % 360;
+                            p.fill(hue, 85, 90); // Consistent saturation/brightness
+
+                            // Draw the rectangle segment
+                            // Ensure segmentHeight is not negative or excessively large due to floating point issues
+                            segmentHeight = p.max(0, segmentHeight); 
+                            // Prevent drawing above canvas top if rounding errors occur
+                            const yPos = p.max(0, segmentStartY - segmentHeight);
+                            const actualDrawHeight = segmentStartY - yPos;
+
+                            p.rect(i * barWidth, yPos, barWidth, actualDrawHeight);
+
+                            // Update the starting Y for the next segment
+                            segmentStartY = yPos; // Move start Y to the top of the drawn segment
+                        }
+                         // Ensure the very top is filled due to potential rounding errors
+                         if (segmentStartY > 0.1 && i*barWidth >=0 ) { // Check if a small gap remains at the top
+                             p.rect(i * barWidth, 0, barWidth, segmentStartY); // Fill remaining gap
+                         }
+                    }
+
+                    // Optional: Add labels or legend
+                    p.fill(50); // Dark grey text
+                    p.textAlign(p.LEFT, p.TOP); // Align to top left
+                    p.text(`Showing ${numDataPoints} time steps as normalized stacked bars.`, 5, 5); // Position at top left
+                },
+                histogram: (data) => {
+                    p.stroke(100); // Light grey border for bars
+                    p.strokeWeight(0.5);
+                    if (data.length === 0 || data[0].length === 0) {
+                        p.fill(150);
+                        p.noStroke();
+                        p.textAlign(p.CENTER, p.CENTER);
+                        p.text('No data for histogram.', p.width / 2, p.height / 2);
+                        return;
+                    }
+
+                    const numBins = 12; // How many bins to divide 0-360 into (e.g., 12 bins of 30 degrees)
+                    const binWidthValue = 360 / numBins; // The range of values each bin covers
+                    let binCounts = new Array(numBins).fill(0); // Initialize counts to zero
+
+                    // --- Data Processing: Count values into bins ---
+                    // We'll analyze the *first* data stream (index 0)
+                    for (let i = 0; i < data.length; i++) {
+                        const value = data[i][0] || 0; // Get value from the first stream
+                        // Ensure value is within expected range (clamp just in case)
+                        const clampedValue = p.constrain(value, 0, 359.999); // Use 359.999 to keep 360 out of bounds for bin index calc
+                        const binIndex = Math.floor(clampedValue / binWidthValue);
+                        if (binIndex >= 0 && binIndex < numBins) {
+                            binCounts[binIndex]++;
+                        } else {
+                             console.warn(`Value ${value} resulted in unexpected bin index ${binIndex}`);
+                        }
+                    }
+
+                    // --- Drawing ---
+                    let maxCount = 0;
+                    for (let count of binCounts) {
+                        if (count > maxCount) {
+                            maxCount = count;
+                        }
+                    }
+
+                    if (maxCount === 0) {
+                         p.fill(150);
+                         p.noStroke();
+                         p.textAlign(p.CENTER, p.CENTER);
+                         p.text('No data points found in the expected range for Stream 1.', p.width / 2, p.height / 2);
+                         return;
+                    }
+
+                    const barWidthPixels = p.width / numBins;
+                    p.fill(0, 80, 80); // Use HSB color (Reddish)
+
+                    for (let b = 0; b < numBins; b++) {
+                        // Map the count in this bin to a height on the canvas
+                        // Map range [0, maxCount] to [0, p.height]
+                        const barHeight = p.map(binCounts[b], 0, maxCount, 0, p.height);
+
+                        const x = b * barWidthPixels;
+                        const y = p.height - barHeight; // Y position starts from bottom
+
+                        p.rect(x, y, barWidthPixels, barHeight);
+
+                        // Optional: Add labels for bins
+                        p.fill(50); // Dark text
+                        p.noStroke();
+                        p.textAlign(p.CENTER, p.BOTTOM);
+                        const binStart = Math.round(b * binWidthValue);
+                        const binEnd = Math.round((b + 1) * binWidthValue);
+                        // Only draw label if bar has some width
+                        if (barWidthPixels > 20) {
+                             p.text(`${binStart}-${binEnd}`, x + barWidthPixels / 2, p.height - 5);
+                        }
+                         p.fill(0, 80, 80); // Reset fill for next bar
+                         p.stroke(100); // Reset stroke for next bar
+                    }
+
+                     // Add overall title/info
+                     p.fill(50);
+                     p.noStroke();
+                     p.textAlign(p.LEFT, p.TOP);
+                     p.text(`Histogram of Stream 1 values (${data.length} points, max count: ${maxCount})`, 5, 5);
+                },
+                heatmap: (data) => {
+                    p.noStroke(); // No borders for the cells initially
+                    if (data.length === 0 || data[0].length === 0) {
+                        p.fill(150);
+                        p.textAlign(p.CENTER, p.CENTER);
+                        p.text('No data for heatmap.', p.width / 2, p.height / 2);
+                        return;
+                    }
+
+                    const numTimeSteps = data.length;
+                    const numStreams = 8 ;// data[0].length;
+
+                    // Calculate the size of each cell to fit the canvas
+                    const cellWidth = p.width / numTimeSteps;
+                    const cellHeight = p.height / numStreams;
+
+                    // --- Draw the heatmap cells ---
+                    for (let i = 0; i < numTimeSteps; i++) { // Iterate through time (columns)
+                        for (let j = 0; j < numStreams; j++) { // Iterate through streams (rows)
+                            const value = data[i][j] || 0;
+
+                            // Map the value (0-360) to a color hue (e.g., blue to red)
+                            // Using HSB: Hue from 240 (blue) down to 0 (red)
+                            const hue = p.map(value, 0, 360, 240, 0);
+                            p.fill(hue, 90, 90); // Saturation and Brightness set to 90
+
+                            // Calculate position
+                            const x = i * cellWidth;
+                            const y = j * cellHeight;
+
+                            // Draw the rectangle cell
+                            p.rect(x, y, cellWidth, cellHeight);
+                        }
+                    }
+
+                    // --- Optional: Add labels or grid lines if cells are large enough ---
+                    if (cellHeight > 15) { // Only add stream labels if cells are tall enough
+                        p.fill(0); // Black text
+                        p.textAlign(p.LEFT, p.CENTER);
+                        p.textSize(p.constrain(cellHeight * 0.6, 8, 14)); // Scale text size
+                        for (let j = 0; j < numStreams; j++) {
+                            p.text(`S${j+1}`, 5, j * cellHeight + cellHeight / 2);
+                        }
+                    }
+                     if (cellWidth > 30) { // Only add time labels if cells are wide enough
+                         p.fill(0);
+                         p.textAlign(p.CENTER, p.TOP);
+                         p.textSize(p.constrain(cellWidth * 0.2, 8, 12));
+                         for (let i = 0; i < numTimeSteps; i+= Math.max(1, Math.floor(numTimeSteps/10))) { // Label ~10 steps
+                             p.text(`${i}`, i * cellWidth + cellWidth / 2, 5);
+                         }
+                     }
+
+                     // Add overall title
+                     p.fill(50);
+                     p.noStroke();
+                     p.textAlign(p.CENTER, p.BOTTOM);
+                     p.textSize(12);
+                     p.text(`Heatmap: ${numStreams} streams over ${numTimeSteps} time steps`, p.width / 2, p.height - 5);
+                },
+                concentricArcs: (data) => {
+                    p.background(0, 0, 10); // Dark background
+                    if (data.length === 0 || data[0].length === 0) return;
+
+                    const numTimeSteps = data.length;
+                    const numStreams = data[0].length;
+                    const centerX = p.width / 2;
+                    const centerY = p.height / 2;
+
+                    const padding = 30; // Space from canvas edge
+                    const maxRadius = (p.min(p.width, p.height) / 2) - padding;
+                    // Space the rings based on the number of sensors
+                    const ringSpacing = numStreams > 1 ? maxRadius / (numStreams -1) : maxRadius; 
+                    const innerRadius = numStreams > 1 ? 0 : maxRadius / 2; // Small inner radius if multiple streams
+
+                    // Calculate the angle step for each time point along the circumference
+                    const angleStep = p.TWO_PI / numTimeSteps;
+                    // Define a small gap angle between segments (optional, set to 0 for no gap)
+                    const angleGap = p.radians(0.5); // Small gap in radians
+
+                    p.noFill();
+                    // Determine stroke weight based on ring density
+                    const baseStrokeWeight = p.max(1, ringSpacing * 0.5); // Adjust multiplier (0.5) as needed
+                    p.strokeWeight(baseStrokeWeight);
+
+                    // Iterate through sensor streams (rings)
+                    for (let j = 0; j < numberOfTouchSensors; j++) { //numStreams for all touch sensors
+                        // Calculate the radius for the current sensor's ring
+                        const radius = innerRadius + j * ringSpacing;
+                        const diameter = radius * 2;
+
+                        // Iterate through time steps (arc segments)
+                        for (let i = 0; i < numTimeSteps; i++) {
+                            const value = data[i][j] || 0;
+
+                            // --- Condition to draw the arc: value > 0 ---
+                            // (Could be adjusted to a different threshold)
+                            if (value > 0) {
+                                // Map value (0-360) to hue
+                                const hue = p.map(value, 0, 360, 0, 360);
+                                // Use high saturation/brightness for visibility
+                                p.stroke(hue, 90, 95);
+
+                                // Calculate start and end angles for the arc segment
+                                // Subtract HALF_PI to start drawing from the top
+                                const startAngle = (i * angleStep) - p.HALF_PI + (angleGap / 2);
+                                // Ensure end angle doesn't overlap start due to gap
+                                const endAngle = ((i + 1) * angleStep) - p.HALF_PI - (angleGap / 2);
+
+                                // Draw the arc only if endAngle > startAngle (handles the gap)
+                                if (endAngle > startAngle) {
+                                    p.arc(centerX, centerY, diameter, diameter, startAngle, endAngle);
+                                }
+                            }
+                            // --- If value <= 0, do nothing, leaving a gap ---
+                        }
+                    }
+                     // Optional: Add a center marker or labels if needed
+                     p.fill(0, 0, 80); // White-ish
+                     p.noStroke();
+                     p.ellipse(centerX, centerY, 5, 5);
+                     // Add text label
+                     p.textAlign(p.CENTER, p.BOTTOM);
+                     p.textSize(12);
+                     p.text(`Concentric Arcs: ${numberOfTouchSensors} sensors over ${numTimeSteps} time steps`, p.width/2, p.height - 5);
+
+                }, // End concentricArcs
+
+                dashboard: (data) => {
+                    p.background(230, 230, 240); // Light grey background for the dashboard
+                    if (data.length === 0 || data[0].length === 0) {
+                         // ... (no data message) ...
+                         return;
+                    }
+
+                    const margin = 10;
+
+                    // --- Define Grid Boxes ---
+                    // Added names directly here for clarity in logging/debugging
+                    const box1 = { name: 'lines', x: margin, y: margin, w: p.width - 2 * margin, h: p.height * 0.6 - 1.5 * margin };
+                    const box2 = { name: 'stackedBars', x: margin, y: p.height * 0.6 + margin * 0.5, w: p.width * 0.5 - 1.5 * margin, h: p.height * 0.4 - 1.5 * margin };
+                    const box3 = { name: 'concentricArcs', x: p.width * 0.5 + margin * 0.5, y: p.height * 0.6 + margin * 0.5, w: p.width * 0.5 - 1.5 * margin, h: p.height * 0.4 - 1.5 * margin };
+
+                    // Helper function to draw a sub-viz (Revised)
+                    const drawSubViz = (vizFunc, box, data) => {
+                        p.push(); // Isolate transformations and styles
+                        try {
+                            // 1. Apply transformations
+                            p.translate(box.x, box.y);
+                            p.scale(box.w / p.width, box.h / p.height);
+
+                            // 2. REMOVED background clearing here. Draw directly on main background.
+
+                            // 3. REMOVED explicit state resets here. Rely on push/pop + viz function.
+
+                            // 4. Call the actual visualization function
+                            if (vizFunc && typeof vizFunc === 'function') {
+                                 console.log(`Dashboard: Drawing ${box.name}`); // Debug log
+                                 vizFunc(data); // Execute the visualization
+                            } else {
+                                 // ... (unavailable viz message) ...
+                            }
+
+                        } catch (error) {
+                             // ... (error handling) ...
+                             console.error(`Dashboard: Error in visualization '${box.name}':`, error);
+                             // Draw error message within the box (in scaled coordinates)
+                             p.background(255, 200, 200); // Use main background call within scaled context for error
+                             p.fill(150, 0, 0); p.noStroke(); p.textAlign(p.CENTER, p.CENTER);
+                             p.textSize(24); // Note: Text size will be scaled down by p.scale()
+                             p.text(`ERROR\n${box.name}\n${error.name}`, p.width / 2, p.height / 2);
+                        } finally {
+                             p.pop(); // Restore previous drawing state (transformations, styles)
+                        }
+
+                        // 5. Draw bounding box outline *after* pop (in main coordinates)
+                        p.stroke(200); p.strokeWeight(1); p.noFill();
+                        p.rect(box.x, box.y, box.w, box.h);
+                    };
+
+                    // --- Draw the Sub-Visualizations ---
+                    if (visualizations.lines) drawSubViz(visualizations.lines, box1, data);
+                    if (visualizations.stackedBars) drawSubViz(visualizations.stackedBars, box2, data);
+                    if (visualizations.concentricArcs) drawSubViz(visualizations.concentricArcs, box3, data);
+
+                     // Add dashboard title (optional)
+                     // ...
+                }, // End dashboard
+            }; // End visualizations object
+
+            p.setup = () => {
+                canvasWidth = canvasContainer.offsetWidth > 100 ? canvasContainer.offsetWidth : 600;
+                // Calculate initial height (adjust logic if needed)
+                canvasHeight = 400;
+                originalCanvasHeight = canvasHeight; // Store the initial height
+
+                let cnv = p.createCanvas(canvasWidth, canvasHeight);
+                cnv.parent('canvasContainer'); // Attach canvas to the div
+                p.colorMode(p.HSB, 360, 100, 100, 1.0); // Use HSB for easier color manipulation
+                p.noLoop(); // Start paused
+                p.background(0, 0, 10); // Dark background initially
+                p.textAlign(p.CENTER, p.CENTER);
+                p.fill(0, 0, 80);
+                p.text('Connect device and collect data to visualize.', p.width / 2, p.height / 2);
+
+                // Initialize overlay Y based on loaded settings AFTER canvas exists
+                if (currentLiveVisualization === 'wovenTapestryOverlay') {
+                     overlayCurrentY = p.height;
+                     console.log(`Setup: Initialized overlayCurrentY to ${overlayCurrentY} based on loaded setting.`);
+                } else {
+                    overlayCurrentY = -1; // Ensure it's reset if not starting in overlay mode
+                }
+
+                // --- Add Fullscreen Toggle on Click ---
+                cnv.mouseClicked(async () => {
+                    // Check if already in fullscreen *on this element* or any element
+                    if (!document.fullscreenElement) {
+                        try {
+                            // Request fullscreen on the canvas element
+                            await p.canvas.requestFullscreen();
+                        } catch (err) {
+                            console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+                            // Optionally show a message to the user
+                            // showError(`Fullscreen request failed: ${err.message}`);
+                        }
+                    } else {
+                        // Exit fullscreen if currently active
+                        if (document.exitFullscreen) {
+                            await document.exitFullscreen();
+                        }
+                    }
+                });
+                 // --- End Fullscreen Toggle ---
+            };
+
+            p.draw = () => {
+                 particles = p.sketchInstanceVariables.particles; // Ensure local reference is up-to-date
+
+                if (isCollecting) {
+                    // --- Check for Debug Mode FIRST ---
+                    if (isDebugMode) {
+                        p.background(0, 0, 10); // Clear with dark background
+                        p.fill(0, 0, 90); // White-ish text
+                        p.noStroke();
+                        p.textAlign(p.LEFT, p.TOP);
+                        p.textSize(12);
+                        p.textFont('monospace'); // Use monospace for better alignment
+                        let debugText = "DEBUG MODE: Raw Values Received\n-----------------------------\n";
+                        if (absoluteLatestData && absoluteLatestData.length > 0) {
+                            // Format the array nicely
+                            debugText += `[${absoluteLatestData.join(', ')}]`;
+                        } else {
+                            debugText += "[Waiting for data...]";
+                        }
+                        p.text(debugText, 10, 10);
+                        return; // Exit draw early, skipping normal live viz
+                    }
+                    // --- END Debug Mode Check ---
+
+
+                    // --- Live Visualization Logic (only runs if not in debug mode) ---
+                     let latestValidData = null;
+                     if (collectedData.length > 0) {
+                         latestValidData = collectedData[collectedData.length - 1];
+                     }
+                     // We also need expectedDataLength to know how many streams to expect
+                     const numStreams = (expectedDataLength > 0) ? expectedDataLength : 1; // Default to 1 if not set
+
+                    // --- Select live visualization based on dropdown ---
+                    switch (currentLiveVisualization) {
+                        case 'centeredStrips':
+                             // --- Centered Strips Logic ---
+                             // Must have valid data to draw strips
+                             if (!latestValidData || collectedData.length === 0) return;
+
+                             // **NO p.background() call here**
+                             const stripBoxHeight = 2;
+                             const stripTopEdgeY = p.height - (collectedData.length * stripBoxHeight);
+
+                             let stripTotalActualWidth = 0;
+                             let stripActualBoxWidths = [];
+                             const stripMaxBoxWidthPerStream = p.width / numStreams;
+                            for (let j = 0; j < numStreams; j++) {
+                                 const value = latestValidData[j] || 0;
+                                 const boxWidth = p.map(value, 0, 360, 0, stripMaxBoxWidthPerStream);
+                                 stripActualBoxWidths.push(boxWidth);
+                                 stripTotalActualWidth += boxWidth;
+                             }
+                             let stripStartX = (p.width - stripTotalActualWidth) / 2;
+                             let stripCurrentX = stripStartX;
+                            p.noStroke();
+                            for (let j = 0; j < numStreams; j++) {
+                                 const value = latestValidData[j] || 0;
+                                 const boxWidth = stripActualBoxWidths[j];
+                                const hue = p.map(value, 0, 360, 240, 0);
+                                p.fill(hue, 90, 90);
+                                if (boxWidth > 0) {
+                                     p.rect(stripCurrentX, stripTopEdgeY, boxWidth, stripBoxHeight);
+                                 }
+                                 stripCurrentX += boxWidth;
+                             }
+                             break; // End of centeredStrips case
+
+                        case 'wovenTapestry':
+                            // --- Woven Tapestry Logic (Full Width, Wrap-Around) ---
+                            p.background(30, 30, 40); // Dark background each frame
+
+                            const warpSpacing = 8;
+                            const warpColor = p.color(0, 0, 40);
+                            const weftHeight = 4; // Fixed height for stable wrapping calculation
+
+                            // 1. Draw Warp Threads
+                            p.stroke(warpColor);
+                            p.strokeWeight(1);
+                            for (let wx = warpSpacing / 2; wx < p.width; wx += warpSpacing) {
+                                p.line(wx, 0, wx, p.height);
+                            }
+
+                            // 2. Draw Weft Rows (wrap around, draw only visible)
+                            p.noStroke();
+                            if (collectedData.length > 0 && weftHeight > 0) {
+                                const maxVisibleRows = Math.floor(p.height / weftHeight);
+                                // Calculate the starting index in collectedData to draw
+                                const startIndex = Math.max(0, collectedData.length - maxVisibleRows);
+
+                                // Loop only through the data points that should be visible
+                                for (let k = startIndex; k < collectedData.length; k++) {
+                                    const dataPoint = collectedData[k];
+                                    if (!dataPoint || dataPoint.length !== numStreams) continue;
+
+                                    // Calculate the index relative to the visible window
+                                    const relativeIndex = k - startIndex;
+                                    // Calculate Y position based on relative index
+                                    const rowY = p.height - (relativeIndex + 1) * weftHeight;
+
+                                    // --- Calculate Proportional Widths ---
+                                    let totalValueForRow = 0;
+                                    for (let j = 0; j < numStreams; j++) {
+                                        totalValueForRow += dataPoint[j] || 0;
+                                    }
+
+                                    let rowCurrentX = 0; // Start from left edge
+
+                                    // Draw segments proportionally across the full width
+                                    for (let j = 0; j < numStreams; j++) {
+                                        const value = dataPoint[j] || 0;
+                                        let proportionalWidth = 0;
+
+                                        if (totalValueForRow > 0) {
+                                            proportionalWidth = (value / totalValueForRow) * p.width;
+                                        } else if (numStreams > 0) {
+                                            proportionalWidth = p.width / numStreams;
+                                        }
+
+                                        // Map value to color and alpha
+                                        const hue = p.map(value, 0, 360, 0, 360);
+                                        const saturation = p.map(value, 0, 360, 40, 90);
+                                        const brightness = p.map(value, 0, 360, 50, 95);
+                                        const alpha = p.map(value, 0, 360, 0.5, 1.0);
+
+                                        if (totalValueForRow === 0) {
+                                            p.fill(0, 0, 50, 0.7);
+                                        } else {
+                                            p.fill(hue, saturation, brightness, alpha);
+                                        }
+
+                                        if (proportionalWidth > 0) {
+                                            // Ensure drawing doesn't go below 0 due to float errors
+                                            if (rowY >= 0) {
+                                                 p.rect(rowCurrentX, rowY, proportionalWidth, weftHeight);
+                                            }
+                                        }
+                                        rowCurrentX += proportionalWidth;
+                                    }
+                                }
+                             } // End if collectedData.length > 0
+                            break; // End of wovenTapestry case
+
+                        case 'particleEmitters':
+                              // --- Particle Emitter Logic ---
+                              // This logic still runs every frame based on the *absolute latest* data
+                              // received (via parseAndStoreData triggering redraw indirectly),
+                              // regardless of the threshold, as it doesn't rely on collectedData history.
+                              // Fetch the absolute latest data point processed (careful if parsing is slow)
+                              // We need a way to get the *very* last parsed line, not just the last *stored* one.
+                              // Let's modify parseAndStoreData slightly to store the absolute latest line.
+
+                              // *** Need to adjust parseAndStoreData and add a new global variable ***
+                              // *** See adjustment below ***
+
+                              p.background(0, 0, 10, 0.1); // Trail effect
+
+                              if (!absoluteLatestData || (expectedDataLength > 0 && absoluteLatestData.length !== expectedDataLength)) {
+                                  break; // Check length against expected if known
+                              }
+
+                              const numEmitterStreams = absoluteLatestData.length;
+
+                              for (let j = 0; j < numEmitterStreams; j++) {
+                                  const value = absoluteLatestData[j] || 0; // Use absolute latest
+                                  // ... (rest of emitter calculations: emitterX, Y, rate, hue, etc.) ...
+                                   const emitterX = p.map(j, 0, numEmitterStreams - 1 || 1, p.width * 0.1, p.width * 0.9);
+                                   const emitterY = p.height / 2;
+                                   const emissionRate = p.map(value, 0, 360, 0, 3);
+                                   const hue = p.map(value, 0, 360, 240, 0);
+                                   const col = p.color(hue, 90, 90);
+                                   const initialSpeed = 2;
+                                   const lifespan = 80;
+
+                                for (let i = 0; i < emissionRate; i++) {
+                                       // ... (create particles) ...
+                                        let angle = p.random(p.TWO_PI);
+                                    let vx = p.cos(angle) * initialSpeed;
+                                    let vy = p.sin(angle) * initialSpeed;
+                                        p.sketchInstanceVariables.particles.push(new Particle(emitterX, emitterY, vx, vy, lifespan, col));
+                                   }
+                              }
+
+                              // Update and display all particles
+                              for (let i = p.sketchInstanceVariables.particles.length - 1; i >= 0; i--) {
+                                  // ... (update, display, remove particles) ...
+                                   p.sketchInstanceVariables.particles[i].update();
+                                   p.sketchInstanceVariables.particles[i].display();
+                                   if (p.sketchInstanceVariables.particles[i].isDead()) {
+                                       p.sketchInstanceVariables.particles.splice(i, 1);
+                                   }
+                              }
+                              break; // End of particleEmitters case
+
+                        case 'wovenTapestryOverlay':
+                            // --- Woven Tapestry (Overlay/Wrap) Logic ---
+                            // **NO p.background() call here**
+                            if (!latestValidData || collectedData.length === 0) return;
+                            if (numStreams <= 0) break;
+
+                            // Use the GLOBAL overlayWeftHeight variable set by parseAndStoreData
+                            if (overlayWeftHeight <= 0) break; // Check the global variable
+                            
+                            // Calculation now uses the global variable
+                            const maxVisibleRows = Math.floor(p.height / overlayWeftHeight); 
+                            if (maxVisibleRows <= 0) break;
+
+                            // --- Update and Wrap Y Position ---
+                            // Uses global overlayDrawSpeed
+                            if (overlayCurrentY === -1) overlayCurrentY = p.height;
+                            overlayCurrentY -= overlayDrawSpeed;
+                            if (overlayCurrentY < 0) overlayCurrentY = p.height;
+                            const currentDrawY = Math.round(overlayCurrentY);
+
+                            // --- Calculate Proportional Widths ---
+                            let totalValueForRowOverlay = 0;
+                            for (let j = 0; j < numStreams; j++) totalValueForRowOverlay += latestValidData[j] || 0;
+
+                            let rowCurrentXOverlay = 0;
+                            p.noStroke();
+                            for (let j = 0; j < numStreams; j++) {
+                                const value = latestValidData[j] || 0;
+                                let proportionalWidthOverlay = 0;
+                                if (totalValueForRowOverlay > 0) proportionalWidthOverlay = (value / totalValueForRowOverlay) * p.width;
+                                else proportionalWidthOverlay = p.width / numStreams;
+
+                                // Map value to color components (H, S, B)
+                                const hueOverlay = p.map(value, 0, 360, 0, 360);
+                                // ** Use the reverted overlayDrawSaturation (or a fixed value if you prefer) **
+                                // Let's use a fixed saturation for now unless you want to map it too
+                                const saturationOverlay = 85; // Fixed saturation
+                                const brightnessOverlay = p.map(value, 0, 360, 50, 95);
+                                // Use the global overlayDrawAlpha 
+                                const alphaOverlay = overlayDrawAlpha;
+
+                                if (totalValueForRowOverlay === 0) {
+                                    p.fill(0, 0, 50, alphaOverlay);
+                                } else {
+                                    p.fill(hueOverlay, saturationOverlay, brightnessOverlay, alphaOverlay);
+                                }
+
+                                if (proportionalWidthOverlay > 0 && currentDrawY >= 0) {
+                                    // Draw rectangle using the GLOBAL overlayWeftHeight
+                                    p.rect(rowCurrentXOverlay, currentDrawY - overlayWeftHeight,
+                                           proportionalWidthOverlay, overlayWeftHeight);
+                                }
+                                rowCurrentXOverlay += proportionalWidthOverlay;
+                            }
+                            break; // End of wovenTapestryOverlay case
+
+                        case 'none':
+                             p.background(240); // Clear background
+                             p.noStroke();
+                             p.fill(0, 0, 80);
+                             // Only show progress bar if NOT indefinite
+                             if (!collectIndefinitely) {
+                                 const durationMs = parseInt(collectDurationInput.value, 10) * 1000 || 1;
+                                 const timeProgress = p.constrain((Date.now() - collectionStartTime) / durationMs, 0, 1);
+                                 p.rect(0, p.height - 5, p.width, 5); // Background bar
+                                 p.fill(120, 80, 80);
+                                 p.rect(0, p.height - 5, p.width * timeProgress, 5); // Progress
+                             } else {
+                                 // Maybe show a blinking indicator or just nothing for indefinite 'none'
+                                 p.fill(150);
+                                 p.textAlign(p.CENTER, p.BOTTOM);
+                                 p.text("Collecting indefinitely...", p.width / 2, p.height - 10);
+                             }
+                             break; // End of none case
+
+                        default:
+                            // ... (default case with background clear) ...
+                            p.background(240);
+                            p.fill(0);
+                            p.textAlign(p.CENTER, p.CENTER);
+                            p.text(`Unknown live viz: ${currentLiveVisualization}`, p.width/2, p.height/2);
+
+                     } // End switch
+
+                } else if (collectedData.length > 0) {
+                     // --- Post-Collection Logic ---
+                    p.background(255); // Clear background for final visualization
+                    if (visualizations[currentVisualization]) {
+                        try {
+                            visualizations[currentVisualization](collectedData);
+                        } catch(visError) {
+                             console.error(`Error in visualization '${currentVisualization}':`, visError);
+                             p.fill(255,0,0); // Red for error
+                             p.noStroke();
+                             p.textAlign(p.CENTER, p.CENTER);
+                             p.text(`Error rendering visualization: ${visError.message}`, p.width/2, p.height/2);
+                        }
+                    } else {
+                        p.fill(200, 0, 0); // Indicate error - unknown viz
+                        p.noStroke();
+                        p.textAlign(p.CENTER, p.CENTER);
+                        p.text(`Unknown visualization: ${currentVisualization}`, p.width / 2, p.height / 2);
+                    }
+                } else {
+                    // --- Initial State Logic ---
+                    p.background(0, 0, 10); // Dark background before connection/collection
+                    p.fill(0, 0, 80);
+                    p.textAlign(p.CENTER, p.CENTER);
+                    p.text('Connect device and collect data to visualize.', p.width / 2, p.height / 2);
+                }
+            }; // End p.draw
+
+             // Custom function to clear canvas, called before starting collection
+            p.clearCanvas = () => {
+                p.background(255); // Clear with white
+                p.fill(180);
+                p.noStroke();
+                p.textAlign(p.CENTER, p.CENTER);
+                p.text('Ready to collect data...', p.width / 2, p.height / 2);
+                // p.redraw(); // Redraw immediately to show the cleared state
+            };
+
+            // Optional: Handle window resize
+            p.windowResized = () => {
+                 // Check if we are in fullscreen targeting the canvas element
+                 if (document.fullscreenElement === p.canvas) {
+                     // Resize to full window dimensions
+                     p.resizeCanvas(p.windowWidth, p.windowHeight);
+                     console.log(`Resized canvas to fullscreen: ${p.windowWidth}x${p.windowHeight}`);
+                 } else {
+                     // Not fullscreen, resize based on container width and original height
+                     canvasWidth = canvasContainer.offsetWidth > 100 ? canvasContainer.offsetWidth : 600;
+                     p.resizeCanvas(canvasWidth, originalCanvasHeight); // Use original height
+                     console.log(`Resized canvas to original: ${canvasWidth}x${originalCanvasHeight}`);
+                 }
+                 // Don't redraw if collecting, let the loop handle it, otherwise redraw
+                 // (Redrawing is now also triggered by handleFullscreenChange)
+                 if (!isCollecting) {
+                    // p.redraw(); // Might be redundant now, handleFullscreenChange calls it
+                 } else {
+                    // Ensure loop is running if collecting, as resize might pause it
+                    p.loop();
+                 }
+            };
+        };
+
+        // --- Event Listeners ---
+        connectButton.addEventListener('click', async () => {
+            if (port) {
+                // This case should ideally not happen if button states are correct
+                 await disconnectSerial();
+                 updateButtonStates(); // Update state after disconnect
+            } else {
+                await connectSerial(); // connectSerial already handles choosing/reconnecting logic
+                // Initialize p5 *if* connectSerial was successful AND p5 isn't already running
+                 if (port && port.readable && !p5Instance) {
+                      console.log("Initializing p5 after manual connect.");
+                      p5Instance = new p5(sketch);
+                 } else if (port && port.readable && p5Instance) {
+                     // p5 already exists, perhaps reset its view
+                     console.log("p5 already initialized, ensuring loop is stopped.");
+                     p5Instance.noLoop();
+                     p5Instance.clearCanvas?.(); // Use optional chaining
+                     p5Instance.redraw(); // Show initial message
+                 }
+            }
+        });
+
+        // Ensure the global startCollection is called
+        startButton.addEventListener('click', startCollection); // No arrow func needed now
+        stopButton.addEventListener('click', stopCollection);
+
+        liveVizSelect.addEventListener('change', (event) => {
+            currentLiveVisualization = event.target.value;
+
+            // Update visibility using the centralized function
+            updateUIDependentElements(); // This now handles the single container
+
+            if (currentLiveVisualization === 'wovenTapestryOverlay') {
+                 overlayCurrentY = p5Instance ? p5Instance.height : -1;
+            }
+
+            // Clear background if switching TO a mode that needs it
+            if (isCollecting && p5Instance && (currentLiveVisualization === 'particleEmitters' || currentLiveVisualization === 'wovenTapestry' || currentLiveVisualization === 'none')) {
+                p5Instance.background(240);
+            }
+
+            saveSettings();
+        });
+
+        vizSelect.addEventListener('change', (event) => {
+            currentVisualization = event.target.value;
+            if (p5Instance && collectedData.length > 0 && !isCollecting) {
+                p5Instance.redraw(); // Redraw with the new visualization if data exists and not collecting
+            } else if (p5Instance && !isCollecting) {
+                 // Optionally clear or show default message if no data
+                 p5Instance.clearCanvas?.(); // Use optional chaining
+                 p5Instance.background(255);
+                 p5Instance.fill(180);
+                 p5Instance.noStroke();
+                 p5Instance.textAlign(p5Instance.CENTER, p5Instance.CENTER);
+                 p5Instance.text(`Switched to ${currentVisualization}. Collect data to view.`, p5Instance.width / 2, p5Instance.height / 2);
+            }
+
+            saveSettings();
+        });
+
+        collectDurationInput.addEventListener('input', saveSettings);
+
+        collectIndefinitelyCheckbox.addEventListener('change', (event) => {
+            collectIndefinitely = event.target.checked;
+            updateUIDependentElements(); // Handles disabling/styling the duration input
+            saveSettings();
+        });
+
+        overlaySpeedSlider.addEventListener('input', (event) => {
+            overlayDrawSpeed = parseFloat(event.target.value);
+            updateUIDependentElements(); // Updates the text span
+            saveSettings();
+        });
+
+        overlayOpacitySlider.addEventListener('input', (event) => {
+            overlayDrawAlpha = parseFloat(event.target.value);
+            updateUIDependentElements(); // Updates the text span
+            saveSettings();
+        });
+
+        overlayWeftHeightSlider.addEventListener('input', (event) => {
+            overlayWeftHeight = parseInt(event.target.value, 10);
+            updateUIDependentElements(); // Updates the text span
+            saveSettings();
+        });
+
+        // Add listener for debug checkbox - NEW
+        debugModeCheckbox.addEventListener('change', (event) => {
+            isDebugMode = event.target.checked;
+            // No specific dependent UI needs updating here, just save
+            saveSettings();
+        });
+
+        // --- Fullscreen Change Listener ---
+        function handleFullscreenChange() {
+            const mainContainer = document.getElementById('mainContentContainer'); // Get main container
+            const canvasContainer = document.getElementById('canvasContainer'); // Get canvas container
+            const titleElement = document.getElementById('mainTitle');
+            const controlsDiv = document.querySelector('.controls');
+            const statusInfoDivs = [statusDiv, errorDiv, dataCountDiv];
+
+            if (document.fullscreenElement === p5Instance?.canvas) {
+                // --- Entering Fullscreen ---
+                console.log("Entering fullscreen for canvas");
+
+                // --- Hide specific UI elements ---
+                if (titleElement) titleElement.style.display = 'none';
+                if (controlsDiv) controlsDiv.style.display = 'none';
+                statusInfoDivs.forEach(div => { if (div) div.style.display = 'none'; });
+
+                // --- Make the main container transparent and remove padding/shadow ---
+                if (mainContainer) {
+                    mainContainer.style.backgroundColor = 'transparent';
+                    mainContainer.style.padding = '0';
+                    mainContainer.style.boxShadow = 'none';
+                    mainContainer.style.borderRadius = '0';
+                }
+                // --- Remove border/shadow from canvas container ---
+                if (canvasContainer) {
+                    canvasContainer.style.border = 'none';
+                    canvasContainer.style.boxShadow = 'none';
+                    canvasContainer.style.borderRadius = '0';
+                }
+                 // --- Adjust body styles ---
+                document.body.style.padding = '0';
+                document.body.style.backgroundColor = '#000'; // Match p5 bg clear
+
+                // Trigger windowResized in p5 to adapt canvas size immediately
+                if (p5Instance) {
+                     p5Instance.windowResized(); // Resize canvas first
+                     p5Instance.background(0, 0, 10); // Clear to dark background
+                     if (isCollecting) {
+                         p5Instance.loop();
+                     } else {
+                         p5Instance.redraw();
+                     }
+                }
+
+            } else {
+                // --- Exiting Fullscreen ---
+                console.log("Exiting fullscreen");
+
+                // --- Restore specific UI element visibility ---
+                if (titleElement) titleElement.style.display = 'block';
+                if (controlsDiv) controlsDiv.style.display = 'flex';
+                statusInfoDivs.forEach(div => {
+                    if (div && div.id !== 'errorDisplay') {
+                       div.style.display = 'block';
+                    }
+                 });
+                 if (errorDiv && errorDiv.textContent && !errorDiv.textContent.toLowerCase().includes('error: none')) {
+                     errorDiv.style.display = 'block';
+                 } else if (errorDiv) {
+                     errorDiv.style.display = 'none';
+                 }
+
+                // --- Restore container styles by removing inline styles ---
+                if (mainContainer) {
+                     mainContainer.style.backgroundColor = ''; // Revert to CSS (Tailwind)
+                     mainContainer.style.padding = '';
+                     mainContainer.style.boxShadow = '';
+                     mainContainer.style.borderRadius = '';
+                 }
+                 // --- Restore canvas container styles ---
+                 if (canvasContainer) {
+                     canvasContainer.style.border = '';
+                     canvasContainer.style.boxShadow = '';
+                     canvasContainer.style.borderRadius = '';
+                 }
+                  // --- Restore body styles ---
+                 document.body.style.padding = '';
+                 document.body.style.backgroundColor = '';
+
+
+                // Trigger windowResized in p5 to restore original canvas size
+                 if (p5Instance) {
+                    p5Instance.windowResized(); // Resizes based on original height
+                    if (isCollecting) {
+                         p5Instance.loop();
+                     } else {
+                         p5Instance.redraw();
+                     }
+                 }
+            }
+        }
+
+        // --- Attempt Auto-Connect on Page Load ---
+        document.addEventListener('DOMContentLoaded', async () => {
+             loadSettings();
+             await tryAutoConnectOnLoad();
+
+             // Add the fullscreen change listener
+             document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+             if (!p5Instance) {
+                 console.log("Initializing p5 in default state (no connection).");
+                 p5Instance = new p5(sketch);
+             }
+             updateButtonStates();
+        });
+
+    </script>
+
+</body>
+</html>
