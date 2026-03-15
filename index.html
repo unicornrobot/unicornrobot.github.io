@@ -203,30 +203,29 @@
             <!-- Visualisation -->
             <div>
                 <div class="sidebar-section-title">Visualisation</div>
-                <div style="margin-bottom:6px;">
-                    <label for="liveVizSelect" style="display:block; margin-bottom:3px;">Live View</label>
-                    <select id="liveVizSelect" style="width:100%;">
-                        <option value="centeredStrips">Centered Strips</option>
-                        <option value="particleEmitters">Particle Emitters</option>
-                        <option value="wovenTapestry">Woven Tapestry</option>
-                        <option value="wovenTapestryOverlay">Woven Tapestry (Overlay)</option>
-                        <option value="auraReading">Aura Reading</option>
-                        <option value="none">None</option>
-                    </select>
+
+                <!-- Data Read (live) -->
+                <div style="margin-bottom:8px;">
+                    <label for="liveVizSelect" style="display:block; margin-bottom:3px;">Data Read</label>
+                    <select id="liveVizSelect" style="width:100%;"></select>
                 </div>
-                <div>
-                    <label for="vizSelect" style="display:block; margin-bottom:3px;">Final Viz</label>
-                    <select id="vizSelect" style="width:100%;">
-                        <option value="lines">Line Graph</option>
-                        <option value="circularPlot">Circular Plot</option>
-                        <option value="radialBars">Radial Bars</option>
-                        <option value="stackedBars">Stacked Bars</option>
-                        <option value="histogram">Histogram</option>
-                        <option value="heatmap">Heatmap</option>
-                        <option value="concentricArcs">Concentric Arcs</option>
-                        <option value="dashboard">Dashboard</option>
-                        <option value="auraDashboard">Aura Dashboard</option>
-                    </select>
+
+                <!-- Results (final) -->
+                <div style="margin-bottom:8px;">
+                    <label for="vizSelect" style="display:block; margin-bottom:3px;">Results</label>
+                    <select id="vizSelect" style="width:100%;"></select>
+                </div>
+
+                <!-- Viz toggles (collapsible) -->
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;cursor:pointer;" id="vizToggleHeader">
+                    <input type="checkbox" id="showVizToggles">
+                    <label for="showVizToggles" style="cursor:pointer;font-size:11px;color:#666;">Manage Vizzes</label>
+                </div>
+                <div id="vizTogglePanel" style="display:none;">
+                    <div style="font-size:10px;color:#555;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.08em;">Data Read</div>
+                    <div id="liveVizToggles" style="margin-bottom:8px;"></div>
+                    <div style="font-size:10px;color:#555;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.08em;">Results</div>
+                    <div id="resultsVizToggles"></div>
                 </div>
             </div>
 
@@ -372,8 +371,88 @@
         // -------------------------
 
         let p5Instance; // To hold the p5 sketch instance
-        let currentVisualization = 'lines'; // Default FINAL visualization
-        let currentLiveVisualization = 'centeredStrips'; // Default LIVE visualization
+        let currentVisualization = 'auraDashboard'; // Default FINAL visualization
+        let currentLiveVisualization = 'auraReading'; // Default LIVE visualization
+
+        // --- Viz Registry ---
+        // Tracks which vizzes are enabled for cycling / display in the selects.
+        const vizRegistry = {
+            live: [
+                { key: 'auraReading',           label: 'Aura Reading',               enabled: true  },
+                { key: 'centeredStrips',         label: 'Centered Strips',            enabled: true  },
+                { key: 'particleEmitters',       label: 'Particle Emitters',          enabled: true  },
+                { key: 'wovenTapestry',          label: 'Woven Tapestry',             enabled: false },
+                { key: 'wovenTapestryOverlay',   label: 'Woven Tapestry (Overlay)',   enabled: false },
+                { key: 'none',                   label: 'None',                       enabled: true  },
+            ],
+            results: [
+                { key: 'auraDashboard',    label: 'Aura Dashboard',    enabled: true  },
+                { key: 'dashboard',        label: 'Dashboard',         enabled: true  },
+                { key: 'concentricArcs',   label: 'Concentric Arcs',   enabled: true  },
+                { key: 'lines',            label: 'Line Graph',        enabled: true  },
+                { key: 'circularPlot',     label: 'Circular Plot',     enabled: false },
+                { key: 'radialBars',       label: 'Radial Bars',       enabled: false },
+                { key: 'stackedBars',      label: 'Stacked Bars',      enabled: false },
+                { key: 'histogram',        label: 'Histogram',         enabled: false },
+                { key: 'heatmap',          label: 'Heatmap',           enabled: false },
+            ]
+        };
+
+        function rebuildVizSelects() {
+            // Rebuild liveVizSelect from registry
+            const liveEnabled = vizRegistry.live.filter(v => v.enabled);
+            liveVizSelect.innerHTML = liveEnabled.map(v =>
+                `<option value="${v.key}"${v.key === currentLiveVisualization ? ' selected' : ''}>${v.label}</option>`
+            ).join('');
+            // Ensure currentLiveVisualization is valid
+            if (!liveEnabled.find(v => v.key === currentLiveVisualization)) {
+                currentLiveVisualization = liveEnabled[0]?.key || 'none';
+                liveVizSelect.value = currentLiveVisualization;
+            }
+
+            // Rebuild vizSelect from registry
+            const resultsEnabled = vizRegistry.results.filter(v => v.enabled);
+            vizSelect.innerHTML = resultsEnabled.map(v =>
+                `<option value="${v.key}"${v.key === currentVisualization ? ' selected' : ''}>${v.label}</option>`
+            ).join('');
+            // Ensure currentVisualization is valid
+            if (!resultsEnabled.find(v => v.key === currentVisualization)) {
+                currentVisualization = resultsEnabled[0]?.key || 'lines';
+                vizSelect.value = currentVisualization;
+            }
+        }
+
+        function renderVizToggles() {
+            const liveList = document.getElementById('liveVizToggles');
+            const resultsList = document.getElementById('resultsVizToggles');
+            if (!liveList || !resultsList) return;
+
+            liveList.innerHTML = vizRegistry.live.map((v, i) => `
+                <label style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;">
+                    <input type="checkbox" data-group="live" data-idx="${i}" ${v.enabled ? 'checked' : ''}>
+                    <span style="color:#aaa;font-size:12px;">${v.label}</span>
+                </label>`).join('');
+
+            resultsList.innerHTML = vizRegistry.results.map((v, i) => `
+                <label style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;">
+                    <input type="checkbox" data-group="results" data-idx="${i}" ${v.enabled ? 'checked' : ''}>
+                    <span style="color:#aaa;font-size:12px;">${v.label}</span>
+                </label>`).join('');
+
+            // Attach listeners
+            [liveList, resultsList].forEach(list => {
+                list.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                    cb.addEventListener('change', e => {
+                        const group = e.target.dataset.group;
+                        const idx = parseInt(e.target.dataset.idx, 10);
+                        vizRegistry[group][idx].enabled = e.target.checked;
+                        rebuildVizSelects();
+                        saveSettings();
+                    });
+                });
+            });
+        }
+        // ---------------------
 
         // --- UI Elements ---
         const connectButton = document.getElementById('connectButton');
@@ -494,7 +573,10 @@
                 debugMode: debugModeCheckbox.checked,
                 installationMode: installationModeCheckbox.checked,
                 triggerSensors: triggerSensorsInput.value,
-                deviceConfig: deviceConfig
+                deviceConfig: deviceConfig,
+                // Save enabled state only (keys are stable, order may change)
+                vizRegistryLive:    vizRegistry.live.map(v => ({ key: v.key, enabled: v.enabled })),
+                vizRegistryResults: vizRegistry.results.map(v => ({ key: v.key, enabled: v.enabled }))
             };
             try {
                 localStorage.setItem('visualizerSettings', JSON.stringify(settings));
@@ -544,7 +626,22 @@
                         triggerSensorIndices = parseTriggerSensors(settings.triggerSensors);
                         triggerSensorsInput.value = settings.triggerSensors;
                     }
+                    // Restore viz registry enabled flags
+                    if (settings.vizRegistryLive) {
+                        settings.vizRegistryLive.forEach(saved => {
+                            const entry = vizRegistry.live.find(v => v.key === saved.key);
+                            if (entry) entry.enabled = saved.enabled;
+                        });
+                    }
+                    if (settings.vizRegistryResults) {
+                        settings.vizRegistryResults.forEach(saved => {
+                            const entry = vizRegistry.results.find(v => v.key === saved.key);
+                            if (entry) entry.enabled = saved.enabled;
+                        });
+                    }
                     renderDeviceConfigRows();
+                    renderVizToggles();
+                    rebuildVizSelects();
 
                     // Call the function to update dependent UI AFTER all values are set
                     updateUIDependentElements();
@@ -554,6 +651,8 @@
                      applyDeviceConfig();
                      triggerSensorIndices = parseTriggerSensors(triggerSensorsInput.value);
                      renderDeviceConfigRows();
+                     renderVizToggles();
+                     rebuildVizSelects();
                      // Ensure dependent UI reflects default values (min opacity is handled by default slider value)
                      updateUIDependentElements();
                 }
@@ -565,9 +664,11 @@
         }
 
         function cycleNextVisualization() {
-            const options = Array.from(vizSelect.options).map(o => o.value);
-            const current = options.indexOf(currentVisualization);
-            currentVisualization = options[(current + 1) % options.length];
+            // Only cycle through enabled results vizzes
+            const enabled = vizRegistry.results.filter(v => v.enabled).map(v => v.key);
+            if (enabled.length === 0) return;
+            const current = enabled.indexOf(currentVisualization);
+            currentVisualization = enabled[(current + 1) % enabled.length];
             vizSelect.value = currentVisualization;
             saveSettings();
             // Redraw immediately if we're in post-collection display state
@@ -2600,6 +2701,11 @@
                 }
             }
             saveSettings();
+        });
+
+        // --- Viz toggle panel show/hide ---
+        document.getElementById('showVizToggles').addEventListener('change', e => {
+            document.getElementById('vizTogglePanel').style.display = e.target.checked ? 'block' : 'none';
         });
 
         // --- Sidebar toggle ---
