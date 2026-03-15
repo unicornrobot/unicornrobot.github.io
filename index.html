@@ -141,6 +141,23 @@
             </div>
             <!-- End Installation Mode Toggle -->
 
+            <!-- Device Config Toggle -->
+            <div class="flex items-center gap-1">
+                <input type="checkbox" id="showDeviceConfigCheckbox" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                <label for="showDeviceConfigCheckbox" class="text-sm font-medium text-gray-600">Device Config</label>
+            </div>
+        </div>
+
+        <!-- Device Config Panel (shown when checkbox ticked) -->
+        <div id="deviceConfigPanel" class="container mx-auto max-w-4xl bg-gray-50 border border-gray-200 rounded-md p-4 mb-4" style="display:none;">
+            <div class="flex items-center gap-3 mb-3">
+                <span class="text-sm font-semibold text-gray-700">Input Channels</span>
+                <label class="text-sm text-gray-500">Count:</label>
+                <input type="number" id="deviceChannelCount" value="8" min="1" max="32"
+                    class="w-16 text-sm border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                <button id="applyChannelCount" class="text-sm bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1 rounded-md shadow">Apply</button>
+            </div>
+            <div id="deviceConfigRows" class="flex flex-col gap-1"></div>
         </div>
 
         <div id="status" class="status-indicator status-disconnected text-center mb-4">Status: Disconnected</div>
@@ -175,7 +192,39 @@
         let isDebugMode = false; // Flag for debug mode state - NEW
         let originalCanvasHeight = 400; // Store the original height - NEW
 
-        let numberOfTouchSensors = 8;
+        // --- Device Config ---
+        // Each entry: { name: string, type: 'sensor'|'rotary'|'button' }
+        // 'sensor' and 'rotary' feed into visualisations (0-360).
+        // 'button' values (1=pressed, 3=released, 6=longpress) are intercepted and never stored.
+        let deviceConfig = [
+            { name: 'S1', type: 'sensor' },
+            { name: 'S2', type: 'sensor' },
+            { name: 'S3', type: 'sensor' },
+            { name: 'S4', type: 'sensor' },
+            { name: 'S5', type: 'sensor' },
+            { name: 'S6', type: 'sensor' },
+            { name: 'S7', type: 'sensor' },
+            { name: 'S8', type: 'sensor' },
+            { name: 'S9', type: 'button' },
+            { name: 'S10', type: 'button' },
+        ];
+
+        // Derived from deviceConfig — recalculated whenever config changes
+        let numberOfTouchSensors = 8; // kept for legacy viz compat, updated by applyDeviceConfig()
+        let vizChannelIndices = [];   // indices of sensor+rotary channels passed to visualisations
+        let buttonChannelIndices = []; // indices of button channels intercepted for UI actions
+        const BUTTON_DEBOUNCE_MS = 500; // ignore repeated button values within this window per channel
+        const buttonLastFiredAt = {};   // { channelIndex: timestamp } — tracks last action time per channel
+
+        function applyDeviceConfig() {
+            vizChannelIndices    = deviceConfig.map((c, i) => c.type !== 'button' ? i : -1).filter(i => i >= 0);
+            buttonChannelIndices = deviceConfig.map((c, i) => c.type === 'button'  ? i : -1).filter(i => i >= 0);
+            numberOfTouchSensors = vizChannelIndices.length;
+            // Auto-update trigger indices to all viz channels (user can still override in the trigger input)
+            triggerSensorIndices = [...vizChannelIndices];
+            if (triggerSensorsInput) triggerSensorsInput.value = triggerSensorIndices.join(',');
+        }
+        // ---------------------
 
         // --- Installation Mode ---
         let isInstallationMode = false;
@@ -208,6 +257,11 @@
         const installationModeCheckbox = document.getElementById('installationModeCheckbox');
         const triggerSensorsInput = document.getElementById('triggerSensorsInput');
         const triggerSensorsContainer = document.getElementById('triggerSensorsContainer');
+        const showDeviceConfigCheckbox = document.getElementById('showDeviceConfigCheckbox');
+        const deviceConfigPanel = document.getElementById('deviceConfigPanel');
+        const deviceChannelCountInput = document.getElementById('deviceChannelCount');
+        const applyChannelCountButton = document.getElementById('applyChannelCount');
+        const deviceConfigRows = document.getElementById('deviceConfigRows');
 
         // Add missing references for Speed slider
         const overlaySpeedSlider = document.getElementById('overlaySpeedSlider');
@@ -252,6 +306,49 @@
             collectIndefinitelyCheckbox.disabled = isCollecting;
         }
 
+        // --- Device Config UI ---
+        function renderDeviceConfigRows() {
+            deviceConfigRows.innerHTML = '';
+            deviceChannelCountInput.value = deviceConfig.length;
+            deviceConfig.forEach((ch, i) => {
+                const row = document.createElement('div');
+                row.className = 'flex items-center gap-2';
+                row.innerHTML = `
+                    <span class="text-xs text-gray-400 w-6 text-right">${i}</span>
+                    <input type="text" value="${ch.name}" data-idx="${i}" data-field="name"
+                        class="config-name w-20 text-sm border-gray-300 rounded px-1 py-0.5 focus:border-indigo-300">
+                    <select data-idx="${i}" data-field="type"
+                        class="config-type text-sm border-gray-300 rounded px-1 py-0.5 focus:border-indigo-300">
+                        <option value="sensor"  ${ch.type==='sensor'  ? 'selected':''}>Sensor</option>
+                        <option value="rotary"  ${ch.type==='rotary'  ? 'selected':''}>Rotary</option>
+                        <option value="button"  ${ch.type==='button'  ? 'selected':''}>Button</option>
+                    </select>`;
+                deviceConfigRows.appendChild(row);
+            });
+            // Live-update on any field change
+            deviceConfigRows.querySelectorAll('.config-name, .config-type').forEach(el => {
+                el.addEventListener('change', e => {
+                    const idx   = parseInt(e.target.dataset.idx, 10);
+                    const field = e.target.dataset.field;
+                    deviceConfig[idx][field] = e.target.value;
+                    applyDeviceConfig();
+                    saveSettings();
+                });
+            });
+        }
+
+        function applyChannelCount(n) {
+            n = Math.max(1, Math.min(32, n));
+            while (deviceConfig.length < n) {
+                deviceConfig.push({ name: `CH${deviceConfig.length}`, type: 'sensor' });
+            }
+            deviceConfig = deviceConfig.slice(0, n);
+            renderDeviceConfigRows();
+            applyDeviceConfig();
+            saveSettings();
+        }
+        // ------------------------
+
         function saveSettings() {
             const settings = {
                 collectDuration: collectDurationInput.value,
@@ -263,7 +360,8 @@
                 overlayWeftHeight: overlayWeftHeightSlider.value,
                 debugMode: debugModeCheckbox.checked,
                 installationMode: installationModeCheckbox.checked,
-                triggerSensors: triggerSensorsInput.value
+                triggerSensors: triggerSensorsInput.value,
+                deviceConfig: deviceConfig
             };
             try {
                 localStorage.setItem('visualizerSettings', JSON.stringify(settings));
@@ -304,14 +402,25 @@
                     overlayWeftHeight = parseInt(overlayWeftHeightSlider.value, 10);
                     isDebugMode = debugModeCheckbox.checked; // Update global debug state
                     isInstallationMode = installationModeCheckbox.checked;
-                    triggerSensorIndices = parseTriggerSensors(triggerSensorsInput.value);
+                    if (settings.deviceConfig && Array.isArray(settings.deviceConfig)) {
+                        deviceConfig = settings.deviceConfig;
+                    }
+                    applyDeviceConfig();
+                    // Override trigger indices with saved value if present (user may have customised)
+                    if (settings.triggerSensors) {
+                        triggerSensorIndices = parseTriggerSensors(settings.triggerSensors);
+                        triggerSensorsInput.value = settings.triggerSensors;
+                    }
+                    renderDeviceConfigRows();
 
                     // Call the function to update dependent UI AFTER all values are set
                     updateUIDependentElements();
 
                 } else {
                      console.log("No saved settings found, using defaults.");
+                     applyDeviceConfig();
                      triggerSensorIndices = parseTriggerSensors(triggerSensorsInput.value);
+                     renderDeviceConfigRows();
                      // Ensure dependent UI reflects default values (min opacity is handled by default slider value)
                      updateUIDependentElements();
                 }
@@ -319,6 +428,18 @@
                 console.error("Error loading or applying settings from localStorage:", e);
                  // Fallback: Ensure dependent UI reflects default values on error
                  updateUIDependentElements();
+            }
+        }
+
+        function cycleNextVisualization() {
+            const options = Array.from(vizSelect.options).map(o => o.value);
+            const current = options.indexOf(currentVisualization);
+            currentVisualization = options[(current + 1) % options.length];
+            vizSelect.value = currentVisualization;
+            saveSettings();
+            // Redraw immediately if we're in post-collection display state
+            if (p5Instance && collectedData.length > 0 && !isCollecting) {
+                p5Instance.redraw();
             }
         }
 
@@ -529,7 +650,27 @@
                 const isValidFormat = values.every(v => !isNaN(v) && v <= 360); // Allow negatives up to 360
 
                 if (isValidFormat && values.length > 0) {
-                    absoluteLatestData = values;
+                    // Store only viz-channel values for live display; raw values kept in local `values`
+                    absoluteLatestData = vizChannelIndices.length > 0
+                        ? vizChannelIndices.map(i => values[i] != null ? values[i] : 0)
+                        : values;
+
+                    // --- Button Channel Interception ---
+                    // Handle before anything else; button values never reach viz storage.
+                    // Debounced per channel — ignores repeats within BUTTON_DEBOUNCE_MS.
+                    buttonChannelIndices.forEach(i => {
+                        const btnVal = values[i];
+                        if (btnVal !== 1 && btnVal !== 6) return; // only act on press / longpress
+
+                        const now = Date.now();
+                        if ((now - (buttonLastFiredAt[i] || 0)) < BUTTON_DEBOUNCE_MS) return;
+                        buttonLastFiredAt[i] = now;
+
+                        if (btnVal === 1) cycleNextVisualization(); // pressed → cycle final viz
+                        // 6 = longpress — reserved for future use
+                        // 3 = released — intentionally ignored
+                    });
+                    // -----------------------------------
 
                     // --- Installation Mode Trigger Check ---
                     if (isInstallationMode && isWatching && !isCollecting) {
@@ -576,11 +717,12 @@
                     }
                     // ------------------------------------
 
-                    // Set expected length based on first valid line during collection
-                     if (isCollecting && expectedDataLength === -1) {
-                         expectedDataLength = values.length;
-                         console.log(`Determined expected data length for this collection: ${expectedDataLength}`);
-                     }
+                    // Set expected length based on viz channels (not raw line length)
+                    if (isCollecting && expectedDataLength === -1) {
+                        const vizLen = vizChannelIndices.length > 0 ? vizChannelIndices.length : values.length;
+                        expectedDataLength = vizLen;
+                        console.log(`Determined expected data length for this collection: ${expectedDataLength}`);
+                    }
                 } else {
                     console.warn("Invalid data format/range received:", line, values);
                     return;
@@ -590,17 +732,22 @@
 
                 // --- Threshold Check & Data Storage Logic ---
                 if (isCollecting) {
-                    const meetsThreshold = values.some(v => v > threshold);
+                    // Extract only the viz channels (sensor + rotary), discarding button channels
+                    const vizValues = vizChannelIndices.length > 0
+                        ? vizChannelIndices.map(i => values[i] != null ? values[i] : padValue)
+                        : values;
+
+                    const meetsThreshold = vizValues.some(v => v > threshold);
                     if (meetsThreshold) {
                         if (expectedDataLength === -1) {
-                             expectedDataLength = values.length;
-                             console.log(`Fallback: Determined expected data length for this collection: ${expectedDataLength}`);
+                             expectedDataLength = vizValues.length;
+                             console.log(`Determined expected data length: ${expectedDataLength}`);
                          }
 
                         let adjustedValues = [];
-                         if (values.length === expectedDataLength) adjustedValues = values;
-                         else if (values.length < expectedDataLength) { /* Pad */ adjustedValues = [...values]; while (adjustedValues.length < expectedDataLength) adjustedValues.push(padValue); console.warn(`Data line shorter. Padded. Line: "${line}"`); }
-                         else { /* Truncate */ adjustedValues = values.slice(0, expectedDataLength); console.warn(`Data line longer. Truncated. Line: "${line}"`); }
+                        if (vizValues.length === expectedDataLength) adjustedValues = vizValues;
+                        else if (vizValues.length < expectedDataLength) { adjustedValues = [...vizValues]; while (adjustedValues.length < expectedDataLength) adjustedValues.push(padValue); }
+                        else { adjustedValues = vizValues.slice(0, expectedDataLength); }
 
                         collectedData.push(adjustedValues);
                         updateDataCount();
@@ -1126,7 +1273,7 @@
                     }
 
                     const numTimeSteps = data.length;
-                    const numStreams = 8 ;// data[0].length;
+                    const numStreams = data[0].length;
 
                     // Calculate the size of each cell to fit the canvas
                     const cellWidth = p.width / numTimeSteps;
@@ -1202,7 +1349,7 @@
                     p.strokeWeight(baseStrokeWeight);
 
                     // Iterate through sensor streams (rings)
-                    for (let j = 0; j < numberOfTouchSensors; j++) { //numStreams for all touch sensors
+                    for (let j = 0; j < numStreams; j++) {
                         // Calculate the radius for the current sensor's ring
                         const radius = innerRadius + j * ringSpacing;
                         const diameter = radius * 2;
@@ -1240,7 +1387,7 @@
                      // Add text label
                      p.textAlign(p.CENTER, p.BOTTOM);
                      p.textSize(12);
-                     p.text(`Concentric Arcs: ${numberOfTouchSensors} sensors over ${numTimeSteps} time steps`, p.width/2, p.height - 5);
+                     p.text(`Concentric Arcs: ${numStreams} sensors over ${numTimeSteps} time steps`, p.width/2, p.height - 5);
 
                 }, // End concentricArcs
 
@@ -2322,6 +2469,16 @@
             }
             saveSettings();
         });
+
+        // --- Device Config Panel Listeners ---
+        showDeviceConfigCheckbox.addEventListener('change', e => {
+            deviceConfigPanel.style.display = e.target.checked ? 'block' : 'none';
+        });
+
+        applyChannelCountButton.addEventListener('click', () => {
+            applyChannelCount(parseInt(deviceChannelCountInput.value, 10));
+        });
+        // ------------------------------------
 
         // --- Fullscreen Change Listener ---
         function handleFullscreenChange() {
