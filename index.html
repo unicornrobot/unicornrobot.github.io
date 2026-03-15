@@ -258,9 +258,27 @@
                     <input type="checkbox" id="installationModeCheckbox">
                     <label for="installationModeCheckbox">Enable</label>
                 </div>
-                <div id="triggerSensorsContainer" style="display:none;">
+                <div id="triggerSensorsContainer" style="display:none; flex-direction:column; gap:6px;">
                     <label for="triggerSensorsInput" style="display:block; margin-bottom:3px; font-size:11px;">Trigger sensor indices</label>
                     <input type="text" id="triggerSensorsInput" value="0,1,2,3,4" style="width:100%;" placeholder="e.g. 0,1,2,3,4">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <label style="flex:1; font-size:11px;">Min count</label>
+                        <input type="number" id="triggerMinCount" value="3" min="1" max="32" style="width:52px;">
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <label style="flex:1; font-size:11px;">Threshold</label>
+                        <input type="number" id="triggerThreshold" value="150" min="0" max="360" style="width:52px;">
+                    </div>
+                    <div style="border-top:1px solid #222; margin-top:4px; padding-top:6px; display:flex; flex-direction:column; gap:6px;">
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <input type="checkbox" id="autoSceneChangeCheckbox" checked>
+                            <label for="autoSceneChangeCheckbox" style="font-size:11px;">Auto scene change</label>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;" id="sceneChangeDurationRow">
+                            <label style="flex:1; font-size:11px;">After (s)</label>
+                            <input type="number" id="displayHoldSeconds" value="8" min="1" style="width:52px;">
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -364,9 +382,11 @@
         let isInstallationMode = false;
         let isWatching = false;         // Waiting for trigger
         let displayHoldTimerId = null;  // Timer to reset after displaying final viz
-        const DISPLAY_HOLD_MS = 8000;  // How long to show final viz before resetting (ms)
-        const TRIGGER_MIN_COUNT = 3;   // Min number of qualifying sensors to fire trigger
-        const TRIGGER_THRESHOLD = 150;  // Value threshold per sensor
+        let displayHoldStartTime = null; // When the display hold began (for countdown)
+        let DISPLAY_HOLD_MS = 8000;    // How long to show final viz before resetting (ms)
+        let autoSceneChange = true;    // Whether to auto-reset to watching after display hold
+        let TRIGGER_MIN_COUNT = 3;   // Min number of qualifying sensors to fire trigger
+        let TRIGGER_THRESHOLD = 150;  // Value threshold per sensor
         let triggerSensorIndices = [0, 1, 2, 3, 4]; // Which sensor indices to check
         // -------------------------
 
@@ -471,6 +491,11 @@
         const installationModeCheckbox = document.getElementById('installationModeCheckbox');
         const triggerSensorsInput = document.getElementById('triggerSensorsInput');
         const triggerSensorsContainer = document.getElementById('triggerSensorsContainer');
+        const triggerMinCountInput = document.getElementById('triggerMinCount');
+        const triggerThresholdInput = document.getElementById('triggerThreshold');
+        const autoSceneChangeCheckbox = document.getElementById('autoSceneChangeCheckbox');
+        const displayHoldSecondsInput = document.getElementById('displayHoldSeconds');
+        const sceneChangeDurationRow = document.getElementById('sceneChangeDurationRow');
         const showDeviceConfigCheckbox = document.getElementById('showDeviceConfigCheckbox');
         const deviceConfigPanel = document.getElementById('deviceConfigPanel');
         const deviceChannelCountInput = document.getElementById('deviceChannelCount');
@@ -573,6 +598,10 @@
                 debugMode: debugModeCheckbox.checked,
                 installationMode: installationModeCheckbox.checked,
                 triggerSensors: triggerSensorsInput.value,
+                triggerMinCount: triggerMinCountInput.value,
+                triggerThreshold: triggerThresholdInput.value,
+                autoSceneChange: autoSceneChange,
+                displayHoldSeconds: DISPLAY_HOLD_MS / 1000,
                 deviceConfig: deviceConfig,
                 // Save enabled state only (keys are stable, order may change)
                 vizRegistryLive:    vizRegistry.live.map(v => ({ key: v.key, enabled: v.enabled })),
@@ -607,6 +636,17 @@
                     debugModeCheckbox.checked = settings.debugMode || false; // Load debug state
                     installationModeCheckbox.checked = settings.installationMode || false;
                     if (settings.triggerSensors) triggerSensorsInput.value = settings.triggerSensors;
+                    if (settings.triggerMinCount) { triggerMinCountInput.value = settings.triggerMinCount; TRIGGER_MIN_COUNT = parseInt(settings.triggerMinCount, 10); }
+                    if (settings.triggerThreshold) { triggerThresholdInput.value = settings.triggerThreshold; TRIGGER_THRESHOLD = parseInt(settings.triggerThreshold, 10); }
+                    if (settings.autoSceneChange !== undefined) {
+                        autoSceneChange = settings.autoSceneChange;
+                        autoSceneChangeCheckbox.checked = autoSceneChange;
+                        sceneChangeDurationRow.style.display = autoSceneChange ? 'flex' : 'none';
+                    }
+                    if (settings.displayHoldSeconds) {
+                        DISPLAY_HOLD_MS = parseFloat(settings.displayHoldSeconds) * 1000;
+                        displayHoldSecondsInput.value = settings.displayHoldSeconds;
+                    }
 
                     // Update global variables based on loaded settings
                     collectIndefinitely = collectIndefinitelyCheckbox.checked;
@@ -1165,8 +1205,10 @@
             }
 
             // In installation mode, schedule automatic reset back to watching
-            if (isInstallationMode) {
+            if (isInstallationMode && autoSceneChange) {
+                displayHoldStartTime = Date.now();
                 displayHoldTimerId = setTimeout(resetToWatching, DISPLAY_HOLD_MS);
+                if (p5Instance) p5Instance.loop(); // keep drawing so countdown animates
             }
         }
 
@@ -1184,6 +1226,7 @@
 
         function resetToWatching() {
             // Called after the display hold period ends
+            displayHoldStartTime = null;
             collectedData = [];
             expectedDataLength = -1;
             lastValidProgress = 0;
@@ -2529,6 +2572,34 @@
                     if (visualizations[currentVisualization]) {
                         try {
                             visualizations[currentVisualization](collectedData);
+                            // --- Scene-change countdown timer (same style as reading timer) ---
+                            if (isInstallationMode && autoSceneChange && displayHoldStartTime) {
+                                const elapsed = Date.now() - displayHoldStartTime;
+                                const remaining = p.constrain(1 - elapsed / DISPLAY_HOLD_MS, 0, 1);
+                                const tr = { x: p.width - 36, y: p.height - 36 };
+                                const timerR = 18;
+                                p.noStroke();
+                                p.fill(0, 0, 8, 0.75);
+                                p.ellipse(tr.x, tr.y, (timerR + 5) * 2, (timerR + 5) * 2);
+                                p.noFill();
+                                p.stroke(0, 0, 30, 0.6);
+                                p.strokeWeight(2.5);
+                                p.arc(tr.x, tr.y, timerR * 2, timerR * 2, -p.HALF_PI, -p.HALF_PI + p.TWO_PI * 0.9999);
+                                const timerHue = p.map(remaining, 0, 1, 15, 180);
+                                p.stroke(timerHue, 80, 90, 0.9);
+                                p.strokeWeight(2.5);
+                                if (remaining > 0.001) {
+                                    p.arc(tr.x, tr.y, timerR * 2, timerR * 2, -p.HALF_PI, -p.HALF_PI + p.TWO_PI * remaining);
+                                }
+                                const secsLeft = Math.ceil((DISPLAY_HOLD_MS - elapsed) / 1000);
+                                p.noStroke();
+                                p.fill(0, 0, 88, 0.85);
+                                p.textAlign(p.CENTER, p.CENTER);
+                                p.textSize(9);
+                                p.textFont('sans-serif');
+                                p.text(Math.max(0, secsLeft), tr.x, tr.y);
+                            }
+                            // -------------------------------------------------------------------
                         } catch(visError) {
                              console.error(`Error in visualization '${currentVisualization}':`, visError);
                              p.fill(255,0,0); // Red for error
@@ -2681,6 +2752,30 @@
 
         triggerSensorsInput.addEventListener('change', (event) => {
             triggerSensorIndices = parseTriggerSensors(event.target.value);
+            saveSettings();
+        });
+
+        triggerMinCountInput.addEventListener('change', (event) => {
+            TRIGGER_MIN_COUNT = Math.max(1, parseInt(event.target.value, 10) || 1);
+            triggerMinCountInput.value = TRIGGER_MIN_COUNT;
+            saveSettings();
+        });
+
+        triggerThresholdInput.addEventListener('change', (event) => {
+            TRIGGER_THRESHOLD = Math.max(0, parseInt(event.target.value, 10) || 0);
+            triggerThresholdInput.value = TRIGGER_THRESHOLD;
+            saveSettings();
+        });
+
+        autoSceneChangeCheckbox.addEventListener('change', (event) => {
+            autoSceneChange = event.target.checked;
+            sceneChangeDurationRow.style.display = autoSceneChange ? 'flex' : 'none';
+            saveSettings();
+        });
+
+        displayHoldSecondsInput.addEventListener('change', (event) => {
+            DISPLAY_HOLD_MS = Math.max(1, parseInt(event.target.value, 10) || 1) * 1000;
+            displayHoldSecondsInput.value = DISPLAY_HOLD_MS / 1000;
             saveSettings();
         });
 
