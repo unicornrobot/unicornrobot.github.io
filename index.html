@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -74,6 +75,7 @@
                     <option value="particleEmitters">Particle Emitters</option>
                     <option value="wovenTapestry">Woven Tapestry</option>
                     <option value="wovenTapestryOverlay">Woven Tapestry (Overlay)</option>
+                    <option value="auraReading">Aura Reading</option>
                     <option value="none">None</option>
                     <!-- Add more live viz options here later -->
                 </select>
@@ -89,7 +91,8 @@
                     <option value="histogram">Histogram</option>
                     <option value="heatmap">Heatmap</option>
                     <option value="concentricArcs">Concentric Arcs</option>
-                    <option value="dashboard">Dashboard</option> <!-- Add this line -->
+                    <option value="dashboard">Dashboard</option>
+                    <option value="auraDashboard">Aura Dashboard</option>
                 </select>
             </div>
 
@@ -150,6 +153,7 @@
     </div>
 
     <script>
+    //pi resolution is 1200x720 (w/h)
         // --- Global Variables ---
         let port; // Serial port object
         let reader; // Serial port reader
@@ -178,8 +182,8 @@
         let isWatching = false;         // Waiting for trigger
         let displayHoldTimerId = null;  // Timer to reset after displaying final viz
         const DISPLAY_HOLD_MS = 8000;  // How long to show final viz before resetting (ms)
-        const TRIGGER_MIN_COUNT = 1;   // Min number of qualifying sensors to fire trigger
-        const TRIGGER_THRESHOLD = 300;  // Value threshold per sensor
+        const TRIGGER_MIN_COUNT = 3;   // Min number of qualifying sensors to fire trigger
+        const TRIGGER_THRESHOLD = 150;  // Value threshold per sensor
         let triggerSensorIndices = [0, 1, 2, 3, 4]; // Which sensor indices to check
         // -------------------------
 
@@ -731,6 +735,14 @@
                  if (p5Instance.sketchInstanceVariables && typeof p5Instance.sketchInstanceVariables.clearParticles === 'function') {
                     p5Instance.sketchInstanceVariables.clearParticles();
                  }
+                 // Trigger the sigil dissolve transition
+                 if (p5Instance.sketchInstanceVariables && typeof p5Instance.sketchInstanceVariables.beginDissolve === 'function') {
+                    p5Instance.sketchInstanceVariables.beginDissolve();
+                 }
+                 // Reset slow-reveal cursor
+                 if (p5Instance.sketchInstanceVariables) {
+                    p5Instance.sketchInstanceVariables.resetReadingFrame?.();
+                 }
 
                  // Set initial background based on selected live visualization
                  // Modes that don't clear per frame need an initial clear.
@@ -763,6 +775,10 @@
 
             // Stop the p5 draw loop and trigger a final draw for the selected post-collection visualization
             if (p5Instance) {
+                // Clear dissolve state so the final viz renders, not the frozen sigil
+                if (p5Instance.sketchInstanceVariables) {
+                    p5Instance.sketchInstanceVariables.resetDissolve();
+                }
                 p5Instance.noLoop();
                 p5Instance.redraw(); // Redraw one last time with the selected visualization
             }
@@ -793,6 +809,9 @@
             absoluteLatestData = null;
             overlayCurrentY = -1;
             updateDataCount();
+            if (p5Instance && p5Instance.sketchInstanceVariables) {
+                p5Instance.sketchInstanceVariables.resetDissolve();
+            }
             startWatching();
             if (p5Instance) {
                 p5Instance.loop();
@@ -807,9 +826,16 @@
 
             // Store sketch-specific variables/functions needed externally
             // Note: This is a slight workaround for accessing sketch state from global functions
+            let sigilDissolveAlpha = 0;   // 0 = sigil visible, 1 = fully dissolved
+            let sigilDissolving = false;   // true while transition is running
+            let readingFrameIndex = 0;    // slow-reveal cursor into collectedData during aura live viz
+
             p.sketchInstanceVariables = {
                  particles: [],
-                 clearParticles: () => { p.sketchInstanceVariables.particles = []; }
+                 clearParticles: () => { p.sketchInstanceVariables.particles = []; },
+                 beginDissolve: () => { sigilDissolving = true; sigilDissolveAlpha = 0; },
+                 resetDissolve: () => { sigilDissolving = false; sigilDissolveAlpha = 0; },
+                 resetReadingFrame: () => { readingFrameIndex = 0; }
             };
             let particles = p.sketchInstanceVariables.particles; // Local reference
 
@@ -1278,6 +1304,239 @@
                      // Add dashboard title (optional)
                      // ...
                 }, // End dashboard
+
+                auraDashboard: (data) => {
+                    if (data.length === 0 || data[0].length === 0) return;
+
+                    const NUM_SENSORS = data[0].length;
+                    const W = p.width;
+                    const H = p.height;
+                    const m = 10; // margin
+
+                    // ── Layout ──────────────────────────────────────────────
+                    // Left column  : 4 small line sparklines  (sensors 0–3)
+                    // Right column : 4 small line sparklines  (sensors 4–7)
+                    // Centre       : central aura sigil
+                    // Bottom strip : full-width combined line graph
+                    const colW    = W * 0.20;
+                    const centreX = W * 0.5;
+                    const centreY = H * 0.46;
+                    const centreR = Math.min(W * 0.22, H * 0.36);
+                    const sparkH  = (H * 0.72 - m * 5) / 4;
+                    const sparkW  = colW - m * 2;
+                    const bottomH = H * 0.22 - m;
+
+                    // ── Dark background ──────────────────────────────────────
+                    p.background(0, 0, 8);
+
+                    // ── Helper: draw one sparkline in a local box ─────────────
+                    const drawSparkline = (bx, by, bw, bh, sensorIdx, hue) => {
+                        // Panel bg
+                        p.noStroke();
+                        p.fill(0, 0, 13);
+                        p.rect(bx, by, bw, bh, 3);
+
+                        // Sensor label + last value
+                        const lastVal = data[data.length - 1][sensorIdx] || 0;
+                        p.fill(hue, 60, 70, 0.55);
+                        p.noStroke();
+                        p.textAlign(p.LEFT, p.TOP);
+                        p.textSize(8);
+                        p.text(`S${sensorIdx + 1}`, bx + 4, by + 3);
+                        p.textAlign(p.RIGHT, p.TOP);
+                        p.textSize(8);
+                        p.text(Math.round(lastVal), bx + bw - 4, by + 3);
+
+                        // Filled area under curve
+                        if (data.length < 2) return;
+                        const pad = 12;
+                        const xStep = bw / (data.length - 1);
+                        p.noStroke();
+                        p.fill(hue, 70, 75, 0.18);
+                        p.beginShape();
+                        p.vertex(bx, by + bh);
+                        for (let i = 0; i < data.length; i++) {
+                            const v = data[i][sensorIdx] || 0;
+                            const sx = bx + i * xStep;
+                            const sy = p.map(v, 0, 360, by + bh - pad, by + pad);
+                            p.vertex(sx, sy);
+                        }
+                        p.vertex(bx + bw, by + bh);
+                        p.endShape(p.CLOSE);
+
+                        // Line
+                        p.noFill();
+                        p.stroke(hue, 80, 88, 0.8);
+                        p.strokeWeight(1);
+                        p.beginShape();
+                        for (let i = 0; i < data.length; i++) {
+                            const v = data[i][sensorIdx] || 0;
+                            const sx = bx + i * xStep;
+                            const sy = p.map(v, 0, 360, by + bh - pad, by + pad);
+                            p.vertex(sx, sy);
+                        }
+                        p.endShape();
+
+                        // Current-value bar at bottom
+                        const barH = 3;
+                        const barW = p.map(lastVal, 0, 360, 0, bw);
+                        p.noStroke();
+                        p.fill(hue, 85, 90, 0.7);
+                        p.rect(bx, by + bh - barH, barW, barH, 0, 0, 1, 1);
+                    };
+
+                    // ── Left sparklines (sensors 0–3) ────────────────────────
+                    for (let j = 0; j < 4 && j < NUM_SENSORS; j++) {
+                        const bx = m;
+                        const by = m + j * (sparkH + m);
+                        const hue = (j / NUM_SENSORS) * 300;
+                        drawSparkline(bx, by, sparkW, sparkH, j, hue);
+                    }
+
+                    // ── Right sparklines (sensors 4–7) ───────────────────────
+                    for (let j = 4; j < 8 && j < NUM_SENSORS; j++) {
+                        const bx = W - colW + m;
+                        const by = m + (j - 4) * (sparkH + m);
+                        const hue = (j / NUM_SENSORS) * 300;
+                        drawSparkline(bx, by, sparkW, sparkH, j, hue);
+                    }
+
+                    // ── Central aura sigil ───────────────────────────────────
+                    // Compute per-sensor averages across the whole session
+                    const avgs = [];
+                    for (let j = 0; j < NUM_SENSORS; j++) {
+                        let sum = 0;
+                        for (let i = 0; i < data.length; i++) sum += data[i][j] || 0;
+                        avgs.push(sum / data.length);
+                    }
+                    const totalAvg = avgs.reduce((s, v) => s + v, 0);
+                    const energyRatio = p.constrain(totalAvg / (NUM_SENSORS * 360), 0, 1);
+
+                    // Outer orbit ring
+                    p.noFill();
+                    p.stroke(0, 0, 22, 0.5);
+                    p.strokeWeight(0.5);
+                    p.ellipse(centreX, centreY, centreR * 2.1, centreR * 2.1);
+
+                    // One lobe per sensor — drawn as layered semi-transparent ellipses
+                    p.noStroke();
+                    for (let j = 0; j < NUM_SENSORS; j++) {
+                        const angle = (j / NUM_SENSORS) * p.TWO_PI - p.HALF_PI;
+                        const avg = avgs[j];
+                        const lobeLen = p.map(avg, 0, 360, 0, centreR * 0.95);
+                        const lobeW   = lobeLen * 0.38;
+                        const hue     = p.map(avg, 0, 360, 260, 45);
+                        const sat     = p.map(avg, 0, 360, 40, 90);
+                        const bri     = p.map(avg, 0, 360, 40, 95);
+
+                        // Three alpha passes for soft glow layering
+                        for (let pass = 0; pass < 3; pass++) {
+                            const scale = 1 + pass * 0.35;
+                            const a = [0.35, 0.18, 0.07][pass];
+                            p.fill(hue, sat * (1 - pass * 0.2), bri, a);
+                            p.push();
+                            p.translate(centreX, centreY);
+                            p.rotate(angle);
+                            p.ellipse(lobeLen * 0.5, 0, lobeLen * scale, lobeW * scale);
+                            p.pop();
+                        }
+                    }
+
+                    // 8-point sigil arms over the top
+                    for (let j = 0; j < NUM_SENSORS; j++) {
+                        const angle  = (j / NUM_SENSORS) * p.TWO_PI - p.HALF_PI;
+                        const avg    = avgs[j];
+                        const tipLen = p.map(avg, 0, 360, 4, centreR * 0.45);
+                        const hue    = p.map(avg, 0, 360, 260, 45);
+
+                        const tx = centreX + p.cos(angle) * tipLen;
+                        const ty = centreY + p.sin(angle) * tipLen;
+                        const sa = p.HALF_PI;
+                        const sw = 4;
+                        const sx1 = centreX + p.cos(angle + sa) * sw;
+                        const sy1 = centreY + p.sin(angle + sa) * sw;
+                        const sx2 = centreX + p.cos(angle - sa) * sw;
+                        const sy2 = centreY + p.sin(angle - sa) * sw;
+
+                        p.fill(hue, 80, 90, 0.55);
+                        p.noStroke();
+                        p.beginShape();
+                        p.vertex(tx, ty);
+                        p.vertex(sx1, sy1);
+                        p.vertex(sx2, sy2);
+                        p.endShape(p.CLOSE);
+                    }
+
+                    // Concentric arc rings — one ring per sensor, time as arc angle
+                    const ringPad   = 4;
+                    const ringCount = NUM_SENSORS;
+                    const ringSpacing = (centreR * 0.95) / ringCount;
+                    const angleStep = p.TWO_PI / data.length;
+                    p.noFill();
+                    for (let j = 0; j < ringCount; j++) {
+                        const r   = (j + 0.5) * ringSpacing;
+                        const hue = (j / ringCount) * 300;
+                        p.strokeWeight(p.max(0.8, ringSpacing * 0.35));
+                        for (let i = 0; i < data.length; i++) {
+                            const val = data[i][j] || 0;
+                            if (val <= 0) continue;
+                            const startA = i * angleStep - p.HALF_PI;
+                            const endA   = (i + 1) * angleStep - p.HALF_PI - p.radians(0.4);
+                            if (endA <= startA) continue;
+                            const arcAlpha = p.map(val, 0, 360, 0.08, 0.55);
+                            p.stroke(hue, 75, 88, arcAlpha);
+                            p.arc(centreX, centreY, r * 2, r * 2, startA, endA);
+                        }
+                    }
+
+                    // Centre glow dot
+                    p.noStroke();
+                    const glowHue = p.lerp(200, 45, energyRatio);
+                    p.fill(glowHue, 50, 100, 0.12);
+                    p.ellipse(centreX, centreY, 40, 40);
+                    p.fill(glowHue, 60, 100, 0.5);
+                    p.ellipse(centreX, centreY, 10, 10);
+
+                    // ── Bottom combined line graph ────────────────────────────
+                    const bgy = H - bottomH - m;
+                    p.noStroke();
+                    p.fill(0, 0, 12);
+                    p.rect(m, bgy, W - m * 2, bottomH, 3);
+
+                    if (data.length >= 2) {
+                        const xStep = (W - m * 2) / (data.length - 1);
+                        const padV  = 8;
+                        for (let j = 0; j < NUM_SENSORS; j++) {
+                            const hue = (j / NUM_SENSORS) * 300;
+                            p.noFill();
+                            p.stroke(hue, 75, 85, 0.65);
+                            p.strokeWeight(0.8);
+                            p.beginShape();
+                            for (let i = 0; i < data.length; i++) {
+                                const v  = data[i][j] || 0;
+                                const sx = m + i * xStep;
+                                const sy = p.map(v, 0, 360, bgy + bottomH - padV, bgy + padV);
+                                p.vertex(sx, sy);
+                            }
+                            p.endShape();
+                        }
+                    }
+
+                    // ── "reading complete" text ──────────────────────────────
+                    p.noStroke();
+                    p.fill(0, 0, 72, 0.7);
+                    p.textAlign(p.CENTER, p.BOTTOM);
+                    p.textSize(11);
+                    p.textFont('sans-serif');
+                    p.text('reading complete', centreX, bgy - 6);
+
+                    // ── Panel border lines ───────────────────────────────────
+                    p.noFill();
+                    p.stroke(0, 0, 28, 0.4);
+                    p.strokeWeight(0.5);
+                    p.rect(m, bgy, W - m * 2, bottomH, 3);
+                }, // End auraDashboard
+
             }; // End visualizations object
 
             p.setup = () => {
@@ -1329,53 +1588,174 @@
                  particles = p.sketchInstanceVariables.particles; // Ensure local reference is up-to-date
 
                 // --- Installation Mode: Watching/Waiting State ---
-                if (isWatching && !isCollecting) {
-                    p.background(0, 0, 8);
-
+                if ((isWatching || sigilDissolving) && !isCollecting) {
                     const cx = p.width / 2;
                     const cy = p.height / 2;
                     const t = p.frameCount;
+                    const NUM_NODES = 8;
+                    const nodeRadius = Math.min(p.width, p.height) * 0.32;
 
-                    // Animated pulsing ring
-                    const pulse = p.sin(t * 0.04) * 0.5 + 0.5; // 0.0 – 1.0
-                    const ringRadius = 60 + pulse * 20;
-                    const ringAlpha = 0.15 + pulse * 0.25;
-                    p.noFill();
-                    p.stroke(200, 30, 70, ringAlpha);
-                    p.strokeWeight(2);
-                    p.ellipse(cx, cy, ringRadius * 2, ringRadius * 2);
-
-                    // Outer dotted orbit
-                    p.strokeWeight(3);
-                    const numDots = 12;
-                    for (let d = 0; d < numDots; d++) {
-                        const angle = (d / numDots) * p.TWO_PI + t * 0.02;
-                        const dx = cx + p.cos(angle) * (ringRadius + 18);
-                        const dy = cy + p.sin(angle) * (ringRadius + 18);
-                        const dotAlpha = p.map(p.sin(angle - t * 0.02), -1, 1, 0.05, 0.6);
-                        p.stroke(200, 20, 80, dotAlpha);
-                        p.point(dx, dy);
+                    // Gather live sensor values (fall back to zeros if no data yet)
+                    const sensorVals = [];
+                    for (let j = 0; j < NUM_NODES; j++) {
+                        sensorVals.push((absoluteLatestData && absoluteLatestData[j] != null)
+                            ? absoluteLatestData[j] : 0);
                     }
 
-                    // "waiting..." text
-                    p.noStroke();
-                    p.fill(0, 0, 85, 0.9);
-                    p.textAlign(p.CENTER, p.CENTER);
-                    p.textSize(18);
-                    p.textFont('sans-serif');
-                    p.text('waiting...', cx, cy);
+                    // How many nodes are above the trigger threshold
+                    const activeCount = triggerSensorIndices.filter(i => (sensorVals[i] || 0) > TRIGGER_THRESHOLD).length;
+                    const alignRatio = p.constrain(activeCount / TRIGGER_MIN_COUNT, 0, 1); // 0→1 as we approach trigger
 
-                    // Subtle sensor value bars along the bottom (ambient live feed)
-                    if (absoluteLatestData && absoluteLatestData.length > 0) {
-                        const barCount = absoluteLatestData.length;
-                        const barW = p.width / barCount;
+                    // --- Background: slow hue shift toward amber as sensors activate ---
+                    // Idle: near-black blue-grey. Active: deep amber-brown.
+                    const bgHue  = p.lerp(220, 35, alignRatio);
+                    const bgSat  = p.lerp(20, 55, alignRatio);
+                    const bgBri  = p.lerp(7, 14, alignRatio);
+                    p.background(bgHue, bgSat, bgBri);
+
+                    // Slow global rotation for the whole sigil
+                    const globalRotation = t * 0.003;
+
+                    // --- Outer ghost ring ---
+                    const ghostPulse = p.sin(t * 0.025) * 0.5 + 0.5;
+                    p.noFill();
+                    p.stroke(bgHue, 15, 40, 0.12 + ghostPulse * 0.08);
+                    p.strokeWeight(1);
+                    p.ellipse(cx, cy, nodeRadius * 2.35, nodeRadius * 2.35);
+
+                    // --- Node loop ---
+                    for (let j = 0; j < NUM_NODES; j++) {
+                        const baseAngle = (j / NUM_NODES) * p.TWO_PI - p.HALF_PI + globalRotation;
+                        const nx = cx + p.cos(baseAngle) * nodeRadius;
+                        const ny = cy + p.sin(baseAngle) * nodeRadius;
+
+                        const val = sensorVals[j] || 0;
+                        const isTriggered = triggerSensorIndices.includes(j) && val > TRIGGER_THRESHOLD;
+                        const fillRatio = p.constrain(val / TRIGGER_THRESHOLD, 0, 1); // 0→1 as value approaches threshold
+
+                        // Per-node hue: idle cool blue, activated warm gold
+                        const nodeHue = p.lerp(200, 45, fillRatio);
+                        const nodeSat = p.lerp(40, 90, fillRatio);
+                        const nodeBri = p.lerp(35, 95, fillRatio);
+                        const nodeAlpha = p.lerp(0.25, 1.0, fillRatio);
+
+                        // --- Line from centre to node ---
+                        const lineAlpha = isTriggered
+                            ? p.lerp(0.35, 0.75, p.sin(t * 0.08 + j) * 0.5 + 0.5)
+                            : fillRatio * 0.2;
+                        p.stroke(nodeHue, nodeSat, nodeBri, lineAlpha);
+                        p.strokeWeight(isTriggered ? 1.2 : 0.6);
+                        p.line(cx, cy, nx, ny);
+
+                        // --- Orrery arc: sweeps from 0 to fillRatio around the node ---
+                        const arcR = 14;
+                        p.noFill();
+                        // Dim track ring
+                        p.stroke(nodeHue, 20, 30, 0.3);
+                        p.strokeWeight(2);
+                        p.arc(nx, ny, arcR * 2, arcR * 2, -p.HALF_PI, -p.HALF_PI + p.TWO_PI * 0.999);
+                        // Fill arc
+                        if (fillRatio > 0) {
+                            p.stroke(nodeHue, nodeSat, nodeBri, nodeAlpha);
+                            p.strokeWeight(2.5);
+                            p.arc(nx, ny, arcR * 2, arcR * 2,
+                                -p.HALF_PI,
+                                -p.HALF_PI + p.TWO_PI * fillRatio);
+                        }
+
+                        // --- Node dot ---
                         p.noStroke();
-                        for (let j = 0; j < barCount; j++) {
-                            const val = absoluteLatestData[j] || 0;
-                            const barH = p.map(val, 0, 360, 0, p.height * 0.12);
-                            const hue = p.map(val, 0, 360, 200, 0);
-                            p.fill(hue, 60, 70, 0.4);
-                            p.rect(j * barW, p.height - barH, barW - 1, barH);
+                        if (isTriggered) {
+                            // Outer glow
+                            const glowR = 10 + p.sin(t * 0.12 + j * 1.3) * 3;
+                            p.fill(nodeHue, nodeSat * 0.6, nodeBri, 0.15);
+                            p.ellipse(nx, ny, glowR * 2.8, glowR * 2.8);
+                            p.fill(nodeHue, nodeSat, nodeBri, 0.5);
+                            p.ellipse(nx, ny, glowR * 1.6, glowR * 1.6);
+                        }
+                        // Core dot
+                        p.fill(nodeHue, nodeSat, nodeBri, nodeAlpha);
+                        p.ellipse(nx, ny, isTriggered ? 8 : 5, isTriggered ? 8 : 5);
+                    }
+
+                    // --- Central 8-pointed sigil star ---
+                    // Each arm assembles when its corresponding node activates
+                    const starInner = 8;
+                    const starOuter = 28;
+                    p.noStroke();
+                    for (let j = 0; j < NUM_NODES; j++) {
+                        const val = sensorVals[j] || 0;
+                        const isTriggered = triggerSensorIndices.includes(j) && val > TRIGGER_THRESHOLD;
+                        const fillRatio = p.constrain(val / TRIGGER_THRESHOLD, 0, 1);
+                        const nodeHue = p.lerp(200, 45, fillRatio);
+                        const armAlpha = isTriggered
+                            ? p.lerp(0.5, 0.9, p.sin(t * 0.06 + j) * 0.5 + 0.5)
+                            : fillRatio * 0.25;
+                        if (armAlpha < 0.02) continue;
+
+                        const armAngle = (j / NUM_NODES) * p.TWO_PI - p.HALF_PI + globalRotation;
+                        const tipLen = p.lerp(starInner, starOuter, fillRatio);
+
+                        // Arm tip
+                        const tx = cx + p.cos(armAngle) * tipLen;
+                        const ty = cy + p.sin(armAngle) * tipLen;
+                        // Side shoulders (perpendicular, narrow)
+                        const sideAngle = armAngle + p.HALF_PI;
+                        const sw = 3;
+                        const sx1 = cx + p.cos(sideAngle) * sw;
+                        const sy1 = cy + p.sin(sideAngle) * sw;
+                        const sx2 = cx - p.cos(sideAngle) * sw;
+                        const sy2 = cy - p.sin(sideAngle) * sw;
+
+                        p.fill(nodeHue, 80, 90, armAlpha);
+                        p.beginShape();
+                        p.vertex(tx, ty);
+                        p.vertex(sx1, sy1);
+                        p.vertex(sx2, sy2);
+                        p.endShape(p.CLOSE);
+                    }
+
+                    // Central dot — glows brighter as all nodes align
+                    const centralGlow = p.lerp(0.3, 1.0, alignRatio);
+                    const centralHue  = p.lerp(200, 45, alignRatio);
+                    p.noStroke();
+                    p.fill(centralHue, 60, 90, centralGlow * 0.2);
+                    p.ellipse(cx, cy, 28, 28);
+                    p.fill(centralHue, 70, 95, centralGlow * 0.7);
+                    p.ellipse(cx, cy, 10, 10);
+
+                    // --- "waiting..." text --- fades gently
+                    const textAlpha = p.map(p.sin(t * 0.018), -1, 1, 0.25, 0.65);
+                    p.noStroke();
+                    p.fill(0, 0, 88, textAlpha);
+                    p.textAlign(p.CENTER, p.CENTER);
+                    p.textSize(13);
+                    p.textFont('sans-serif');
+                    p.text('waiting...', cx, cy + nodeRadius + 36);
+
+                    // --- Sensor bars at bottom (commented out for now) ---
+                    // if (absoluteLatestData && absoluteLatestData.length > 0) {
+                    //     const barCount = absoluteLatestData.length;
+                    //     const barW = p.width / barCount;
+                    //     p.noStroke();
+                    //     for (let j = 0; j < barCount; j++) {
+                    //         const val = absoluteLatestData[j] || 0;
+                    //         const barH = p.map(val, 0, 360, 0, p.height * 0.12);
+                    //         const hue = p.map(val, 0, 360, 200, 0);
+                    //         p.fill(hue, 60, 70, 0.4);
+                    //         p.rect(j * barW, p.height - barH, barW - 1, barH);
+                    //     }
+                    // }
+
+                    // --- Dissolve overlay: smooth white fade into collection ---
+                    if (sigilDissolving) {
+                        sigilDissolveAlpha += 0.035; // ~28 frames to full white
+                        p.noStroke();
+                        p.fill(0, 0, 100, p.constrain(sigilDissolveAlpha, 0, 1));
+                        p.rect(0, 0, p.width, p.height);
+                        if (sigilDissolveAlpha >= 1) {
+                            sigilDissolving = false;
+                            sigilDissolveAlpha = 0;
                         }
                     }
 
@@ -1416,6 +1796,7 @@
                     // --- Select live visualization based on dropdown ---
                     switch (currentLiveVisualization) {
                         case 'centeredStrips':
+                            p.background(30, 30, 40); // Dark background each frame
                              // --- Centered Strips Logic ---
                              // Must have valid data to draw strips
                              if (!latestValidData || collectedData.length === 0) return;
@@ -1649,6 +2030,69 @@
                              }
                              break; // End of none case
 
+                        case 'auraReading': {
+                            // --- Aura Bloom Live Reading ---
+                            // Dark background drawn once per frame with very low alpha = long-exposure accumulation
+                            p.background(0, 0, 5, 0.08);
+
+                            const cx = p.width / 2;
+                            const cy = p.height / 2;
+                            const t = p.frameCount;
+                            const NUM_SENSORS = numStreams;
+
+                            // Advance slow-reveal cursor: advance ~1 frame every 3 draw frames
+                            // so the aura builds gradually across the full duration
+                            if (p.frameCount % 3 === 0 && collectedData.length > readingFrameIndex) {
+                                readingFrameIndex++;
+                            }
+
+                            // Use the slow-reveal slice rather than the latest frame
+                            const revealData = collectedData[readingFrameIndex] || latestValidData;
+                            if (!revealData) break;
+
+                            // Overall energy level (0–1) drives background warmth
+                            const totalEnergy = revealData.reduce((s, v) => s + (v || 0), 0);
+                            const maxPossible = NUM_SENSORS * 360;
+                            const energyRatio = p.constrain(totalEnergy / maxPossible, 0, 1);
+
+                            // Draw one lobe per sensor, accumulating each frame
+                            p.noStroke();
+                            for (let j = 0; j < NUM_SENSORS; j++) {
+                                const val = revealData[j] || 0;
+                                const lobeAngle = (j / NUM_SENSORS) * p.TWO_PI - p.HALF_PI;
+
+                                // Lobe size — organic wobble via sin offsets
+                                const wobble = p.sin(t * 0.04 + j * 1.7) * 0.12 + 1.0;
+                                const lobeLen = p.map(val, 0, 360, 0, Math.min(p.width, p.height) * 0.38) * wobble;
+                                const lobeWidth = lobeLen * (0.32 + p.sin(t * 0.03 + j * 2.3) * 0.08);
+
+                                // Colour: hue sweeps from cool violet (low) to warm gold (high)
+                                const hue = p.map(val, 0, 360, 260, 45);
+                                const sat = p.map(val, 0, 360, 40, 95);
+                                const bri = p.map(val, 0, 360, 30, 95);
+                                // Very low alpha per frame — each pass layers gently
+                                const alpha = p.map(val, 0, 360, 0.012, 0.06);
+
+                                p.fill(hue, sat, bri, alpha);
+
+                                // Draw lobe as an ellipse translated and rotated toward its angle
+                                p.push();
+                                p.translate(cx, cy);
+                                p.rotate(lobeAngle);
+                                p.ellipse(lobeLen * 0.5, 0, lobeLen, lobeWidth);
+                                p.pop();
+                            }
+
+                            // Soft central glow — grows with energy
+                            const glowR = p.map(energyRatio, 0, 1, 10, 60);
+                            p.fill(45, 60, 100, 0.04);
+                            p.ellipse(cx, cy, glowR * 2.5, glowR * 2.5);
+                            p.fill(45, 30, 100, 0.06);
+                            p.ellipse(cx, cy, glowR * 1.2, glowR * 1.2);
+
+                            break;
+                        }
+
                         default:
                             // ... (default case with background clear) ...
                             p.background(240);
@@ -1657,6 +2101,46 @@
                             p.text(`Unknown live viz: ${currentLiveVisualization}`, p.width/2, p.height/2);
 
                      } // End switch
+
+                    // --- Countdown radial timer (bottom-right corner, all live modes) ---
+                    if (!collectIndefinitely && collectionStartTime) {
+                        const durationMs = parseInt(collectDurationInput.value, 10) * 1000 || 1;
+                        const elapsed = Date.now() - collectionStartTime;
+                        const remaining = p.constrain(1 - elapsed / durationMs, 0, 1);
+
+                        const tr = { x: p.width - 36, y: p.height - 36 }; // centre of timer
+                        const timerR = 18;
+
+                        // Background circle
+                        p.noStroke();
+                        p.fill(0, 0, 8, 0.75);
+                        p.ellipse(tr.x, tr.y, (timerR + 5) * 2, (timerR + 5) * 2);
+
+                        // Track ring
+                        p.noFill();
+                        p.stroke(0, 0, 30, 0.6);
+                        p.strokeWeight(2.5);
+                        p.arc(tr.x, tr.y, timerR * 2, timerR * 2, -p.HALF_PI, -p.HALF_PI + p.TWO_PI * 0.9999);
+
+                        // Remaining arc — colour shifts from cool to warm as time runs out
+                        const timerHue = p.map(remaining, 0, 1, 15, 180);
+                        p.stroke(timerHue, 80, 90, 0.9);
+                        p.strokeWeight(2.5);
+                        if (remaining > 0.001) {
+                            p.arc(tr.x, tr.y, timerR * 2, timerR * 2,
+                                -p.HALF_PI,
+                                -p.HALF_PI + p.TWO_PI * remaining);
+                        }
+
+                        // Seconds remaining label
+                        const secsLeft = Math.ceil((durationMs - elapsed) / 1000);
+                        p.noStroke();
+                        p.fill(0, 0, 88, 0.85);
+                        p.textAlign(p.CENTER, p.CENTER);
+                        p.textSize(9);
+                        p.textFont('sans-serif');
+                        p.text(Math.max(0, secsLeft), tr.x, tr.y);
+                    }
 
                 } else if (collectedData.length > 0) {
                      // --- Post-Collection Logic ---
