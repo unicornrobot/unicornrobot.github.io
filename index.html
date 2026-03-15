@@ -8,166 +8,301 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
     <style>
-        /* Basic styling for canvas */
-        canvas {
-            display: block;
-            margin: 20px auto;
-            border: 1px solid #ccc;
-        }
-        body {
+        *, *::before, *::after { box-sizing: border-box; }
+
+        html, body {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            overflow: hidden;
+            background: #0a0a0a;
             font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            color: #ccc;
         }
-        /* Ensure buttons and controls are clearly visible and usable */
-        button, select, input {
-            padding: 8px 15px;
-            margin: 5px;
-            border-radius: 6px;
-            border: 1px solid #ccc;
+
+        /* ── Layout shell ── */
+        #appShell {
+            display: flex;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* ── Sidebar ── */
+        #sidebar {
+            flex-shrink: 0;
+            width: 260px;
+            height: 100%;
+            background: #111;
+            border-right: 1px solid #222;
+            display: flex;
+            flex-direction: column;
+            transition: width 0.25s ease, opacity 0.25s ease;
+            overflow: hidden;
+        }
+        #sidebar.collapsed {
+            width: 0;
+            opacity: 0;
+            border-right: none;
+        }
+        #sidebarInner {
+            width: 260px; /* fixed so content doesn't reflow during collapse */
+            height: 100%;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 12px 10px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+        #sidebarInner::-webkit-scrollbar { width: 4px; }
+        #sidebarInner::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+
+        /* ── Sidebar toggle tab ── */
+        #sidebarToggle {
+            position: fixed;
+            top: 50%;
+            transform: translateY(-50%);
+            left: 260px;
+            transition: left 0.25s ease;
+            z-index: 100;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-left: none;
+            border-radius: 0 6px 6px 0;
+            width: 18px;
+            height: 48px;
             cursor: pointer;
-            transition: background-color 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            font-size: 10px;
+            line-height: 1;
+            user-select: none;
         }
-        button:hover, select:hover {
-            background-color: #f0f0f0;
+        #sidebarToggle:hover { background: #222; color: #aaa; }
+        #sidebarToggle.collapsed { left: 0; }
+
+        /* ── Canvas area ── */
+        #canvasArea {
+            flex: 1;
+            height: 100%;
+            overflow: hidden;
+            position: relative;
         }
-        button:disabled {
-            cursor: not-allowed;
-            opacity: 0.6;
+        #canvasContainer {
+            width: 100%;
+            height: 100%;
         }
+        #canvasContainer canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+        /* ── Sidebar section headings ── */
+        .sidebar-section-title {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: #555;
+            padding-bottom: 4px;
+            border-bottom: 1px solid #222;
+            margin-bottom: 6px;
+        }
+
+        /* ── Control overrides for dark sidebar ── */
+        #sidebar button, #sidebar select, #sidebar input[type="number"],
+        #sidebar input[type="text"], #sidebar input[type="range"] {
+            padding: 5px 8px;
+            margin: 0;
+            border-radius: 5px;
+            border: 1px solid #2a2a2a;
+            background: #1a1a1a;
+            color: #bbb;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        #sidebar button:hover, #sidebar select:hover { background: #252525; border-color: #444; }
+        #sidebar button:disabled { cursor: not-allowed; opacity: 0.4; }
+        #sidebar input[type="checkbox"] { padding: 0; margin: 0; width: 14px; height: 14px; cursor: pointer; }
+        #sidebar label { color: #aaa; }
+
+        /* ── Status pills ── */
         .status-indicator {
-            padding: 10px;
-            margin-top: 10px;
-            border-radius: 6px;
-            font-weight: bold;
+            padding: 6px 8px;
+            border-radius: 5px;
+            font-weight: 600;
+            font-size: 11px;
+            text-align: center;
         }
-        .status-disconnected { background-color: #fecaca; color: #991b1b; } /* Red */
-        .status-connected { background-color: #d1fae5; color: #065f46; } /* Green */
-        .status-collecting { background-color: #bfdbfe; color: #1e40af; } /* Blue */
-        .status-finished { background-color: #fef9c3; color: #854d0e; } /* Yellow */
-        .status-error { background-color: #fed7aa; color: #9a3412; } /* Orange */
+        .status-disconnected { background: #3b0f0f; color: #f87171; }
+        .status-connected    { background: #0f2b1a; color: #4ade80; }
+        .status-collecting   { background: #0f1f3b; color: #60a5fa; }
+        .status-finished     { background: #2b2209; color: #fbbf24; }
+        .status-error        { background: #2b1408; color: #fb923c; }
+
+        /* ── Device config rows ── */
+        #deviceConfigRows .cfg-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 2px 0;
+        }
+        #deviceConfigRows .cfg-idx {
+            width: 18px;
+            text-align: right;
+            color: #444;
+            font-size: 11px;
+            flex-shrink: 0;
+        }
+        #deviceConfigRows input[type="text"] { flex: 1; min-width: 0; }
+        #deviceConfigRows select { flex-shrink: 0; width: 80px; }
     </style>
 </head>
-<body class="bg-gray-100 p-5">
+<body>
 
-    <!-- Add id="mainContentContainer" here -->
-    <div id="mainContentContainer" class="container mx-auto max-w-4xl bg-white p-6 rounded-lg shadow-md">
-        <h1 id="mainTitle" class="text-2xl font-bold mb-4 text-center text-gray-700">Serial Data Visualizer</h1>
+<div id="appShell">
 
-        <div class="controls flex flex-wrap justify-center items-center gap-4 mb-4 p-4 bg-gray-50 rounded-md">
-            <button id="connectButton" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-md shadow">Connect to Serial Device</button>
+    <!-- ── Sidebar ── -->
+    <div id="sidebar">
+        <div id="sidebarInner">
 
-            <div class="flex items-center gap-2">
-                <label for="collectDuration" class="text-sm font-medium text-gray-600">Collect for (seconds):</label>
-                <input type="number" id="collectDuration" value="10" min="1" class="w-20 border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+            <div style="font-size:15px; font-weight:700; color:#888; letter-spacing:0.05em; padding-bottom:8px; border-bottom:1px solid #222;">
+                Serial Visualizer
             </div>
 
-            <div class="flex items-center gap-1">
-                <input type="checkbox" id="collectIndefinitely" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                <label for="collectIndefinitely" class="text-sm font-medium text-gray-600">Collect Indefinitely</label>
+            <!-- Connection -->
+            <div>
+                <div class="sidebar-section-title">Connection</div>
+                <button id="connectButton" style="width:100%; background:#1e3a5f; color:#7ec8ff; border-color:#1e3a5f;">Connect to Serial Device</button>
+                <div id="status" class="status-indicator status-disconnected" style="margin-top:6px;">Disconnected</div>
+                <div id="errorDisplay" class="status-indicator status-error" style="display:none; margin-top:4px;"></div>
             </div>
 
-            <button id="startButton" class="bg-green-500 hover:bg-green-600 text-white font-semibold rounded-md shadow" disabled>Start Collection</button>
-            <button id="stopButton" class="bg-red-500 hover:bg-red-600 text-white font-semibold rounded-md shadow" disabled>Stop Collection</button>
-
-            <div class="flex items-center gap-2">
-                <label for="liveVizSelect" class="text-sm font-medium text-gray-600">Live View:</label>
-                <select id="liveVizSelect" class="border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                    <option value="centeredStrips">Centered Strips</option>
-                    <option value="particleEmitters">Particle Emitters</option>
-                    <option value="wovenTapestry">Woven Tapestry</option>
-                    <option value="wovenTapestryOverlay">Woven Tapestry (Overlay)</option>
-                    <option value="auraReading">Aura Reading</option>
-                    <option value="none">None</option>
-                    <!-- Add more live viz options here later -->
-                </select>
-            </div>
-
-            <div class="flex flex-col items-center">
-                <label for="vizSelect" class="text-sm font-medium text-gray-600 mb-1">Final Viz:</label>
-                <select id="vizSelect" class="w-full p-1.5 border rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500">
-                    <option value="lines">Line Graph</option>
-                    <option value="circularPlot">Circular Plot</option>
-                    <option value="radialBars">Radial Bars</option>
-                    <option value="stackedBars">Stacked Bars</option>
-                    <option value="histogram">Histogram</option>
-                    <option value="heatmap">Heatmap</option>
-                    <option value="concentricArcs">Concentric Arcs</option>
-                    <option value="dashboard">Dashboard</option>
-                    <option value="auraDashboard">Aura Dashboard</option>
-                </select>
-            </div>
-
-            <!-- NEW Single Container for Overlay Sliders -->
-            <div id="overlayControlsContainer" class="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 p-2 border border-gray-200 rounded-md" style="display: none;"> <!-- Hidden initially, uses flex for layout -->
-
-                <!-- Weft Height Control Group -->
-                <div class="flex items-center gap-2">
-                    <label for="overlayWeftHeightSlider" class="text-sm font-medium text-gray-600">Height:</label>
-                    <input type="range" id="overlayWeftHeightSlider" min="1" max="10" value="4" step="1" class="w-24 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700">
-                    <span id="overlayWeftHeightValue" class="text-sm text-gray-500 w-6 text-right">4</span>
+            <!-- Collection -->
+            <div>
+                <div class="sidebar-section-title">Collection</div>
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                    <label for="collectDuration" style="flex-shrink:0;">Duration (s):</label>
+                    <input type="number" id="collectDuration" value="10" min="1" style="width:60px;">
                 </div>
-
-                <!-- Opacity Control Group -->
-                <div class="flex items-center gap-2">
-                    <label for="overlayOpacitySlider" class="text-sm font-medium text-gray-600">Opacity:</label>
-                    <input type="range" id="overlayOpacitySlider" min="0.05" max="1" value="0.7" step="0.05" class="w-24 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700">
-                    <span id="overlayOpacityValue" class="text-sm text-gray-500 w-8 text-right">0.7</span>
+                <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+                    <input type="checkbox" id="collectIndefinitely">
+                    <label for="collectIndefinitely">Collect Indefinitely</label>
                 </div>
-
-                <!-- Speed Control Group -->
-                <div class="flex items-center gap-2">
-                    <label for="overlaySpeedSlider" class="text-sm font-medium text-gray-600">Speed:</label>
-                    <input type="range" id="overlaySpeedSlider" min="0.1" max="5" value="1" step="0.1" class="w-24 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700">
-                    <span id="overlaySpeedValue" class="text-sm text-gray-500 w-8 text-right">1.0</span>
+                <div style="display:flex; gap:6px;">
+                    <button id="startButton" disabled style="flex:1; background:#0f2b1a; color:#4ade80; border-color:#1a3d26;">Start</button>
+                    <button id="stopButton"  disabled style="flex:1; background:#3b0f0f; color:#f87171; border-color:#4d1515;">Stop</button>
                 </div>
-
+                <div id="dataCount" style="margin-top:6px; font-size:11px; color:#555; text-align:center;">Data points: 0</div>
             </div>
-            <!-- End Single Container -->
 
-            <!-- Add Debug Mode Toggle -->
-            <div class="flex items-center gap-1">
-                <input type="checkbox" id="debugModeCheckbox" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                <label for="debugModeCheckbox" class="text-sm font-medium text-gray-600">Debug Raw Values</label>
+            <!-- Visualisation -->
+            <div>
+                <div class="sidebar-section-title">Visualisation</div>
+                <div style="margin-bottom:6px;">
+                    <label for="liveVizSelect" style="display:block; margin-bottom:3px;">Live View</label>
+                    <select id="liveVizSelect" style="width:100%;">
+                        <option value="centeredStrips">Centered Strips</option>
+                        <option value="particleEmitters">Particle Emitters</option>
+                        <option value="wovenTapestry">Woven Tapestry</option>
+                        <option value="wovenTapestryOverlay">Woven Tapestry (Overlay)</option>
+                        <option value="auraReading">Aura Reading</option>
+                        <option value="none">None</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="vizSelect" style="display:block; margin-bottom:3px;">Final Viz</label>
+                    <select id="vizSelect" style="width:100%;">
+                        <option value="lines">Line Graph</option>
+                        <option value="circularPlot">Circular Plot</option>
+                        <option value="radialBars">Radial Bars</option>
+                        <option value="stackedBars">Stacked Bars</option>
+                        <option value="histogram">Histogram</option>
+                        <option value="heatmap">Heatmap</option>
+                        <option value="concentricArcs">Concentric Arcs</option>
+                        <option value="dashboard">Dashboard</option>
+                        <option value="auraDashboard">Aura Dashboard</option>
+                    </select>
+                </div>
             </div>
-            <!-- End Debug Mode Toggle -->
 
-            <!-- Installation Mode Toggle -->
-            <div class="flex items-center gap-1">
-                <input type="checkbox" id="installationModeCheckbox" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                <label for="installationModeCheckbox" class="text-sm font-medium text-gray-600">Installation Mode</label>
+            <!-- Overlay controls (shown only for Woven Tapestry Overlay) -->
+            <div id="overlayControlsContainer" style="display:none;">
+                <div class="sidebar-section-title">Overlay Settings</div>
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <label style="flex:1;">Height</label>
+                        <input type="range" id="overlayWeftHeightSlider" min="1" max="10" value="4" step="1" style="flex:2; padding:0;">
+                        <span id="overlayWeftHeightValue" style="width:18px; text-align:right; color:#666;">4</span>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <label style="flex:1;">Opacity</label>
+                        <input type="range" id="overlayOpacitySlider" min="0.05" max="1" value="0.7" step="0.05" style="flex:2; padding:0;">
+                        <span id="overlayOpacityValue" style="width:28px; text-align:right; color:#666;">0.7</span>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <label style="flex:1;">Speed</label>
+                        <input type="range" id="overlaySpeedSlider" min="0.1" max="5" value="1" step="0.1" style="flex:2; padding:0;">
+                        <span id="overlaySpeedValue" style="width:28px; text-align:right; color:#666;">1.0</span>
+                    </div>
+                </div>
             </div>
-            <div id="triggerSensorsContainer" class="flex items-center gap-2" style="display: none;">
-                <label for="triggerSensorsInput" class="text-sm font-medium text-gray-600">Trigger sensors (indices):</label>
-                <input type="text" id="triggerSensorsInput" value="0,1,2,3,4" class="w-28 border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50" placeholder="e.g. 0,1,2,3,4">
+
+            <!-- Installation Mode -->
+            <div>
+                <div class="sidebar-section-title">Installation Mode</div>
+                <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+                    <input type="checkbox" id="installationModeCheckbox">
+                    <label for="installationModeCheckbox">Enable</label>
+                </div>
+                <div id="triggerSensorsContainer" style="display:none;">
+                    <label for="triggerSensorsInput" style="display:block; margin-bottom:3px; font-size:11px;">Trigger sensor indices</label>
+                    <input type="text" id="triggerSensorsInput" value="0,1,2,3,4" style="width:100%;" placeholder="e.g. 0,1,2,3,4">
+                </div>
             </div>
-            <!-- End Installation Mode Toggle -->
 
-            <!-- Device Config Toggle -->
-            <div class="flex items-center gap-1">
-                <input type="checkbox" id="showDeviceConfigCheckbox" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                <label for="showDeviceConfigCheckbox" class="text-sm font-medium text-gray-600">Device Config</label>
+            <!-- Device Config -->
+            <div>
+                <div class="sidebar-section-title">Device Config</div>
+                <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+                    <input type="checkbox" id="showDeviceConfigCheckbox">
+                    <label for="showDeviceConfigCheckbox">Show Channel Config</label>
+                </div>
+                <div id="deviceConfigPanel" style="display:none;">
+                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+                        <label>Channels:</label>
+                        <input type="number" id="deviceChannelCount" value="8" min="1" max="32" style="width:52px;">
+                        <button id="applyChannelCount" style="background:#1a237e; color:#90caf9; border-color:#1a237e; padding:4px 8px;">Apply</button>
+                    </div>
+                    <div id="deviceConfigRows"></div>
+                </div>
             </div>
-        </div>
 
-        <!-- Device Config Panel (shown when checkbox ticked) -->
-        <div id="deviceConfigPanel" class="container mx-auto max-w-4xl bg-gray-50 border border-gray-200 rounded-md p-4 mb-4" style="display:none;">
-            <div class="flex items-center gap-3 mb-3">
-                <span class="text-sm font-semibold text-gray-700">Input Channels</span>
-                <label class="text-sm text-gray-500">Count:</label>
-                <input type="number" id="deviceChannelCount" value="8" min="1" max="32"
-                    class="w-16 text-sm border-gray-300 rounded-md shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                <button id="applyChannelCount" class="text-sm bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1 rounded-md shadow">Apply</button>
+            <!-- Debug -->
+            <div>
+                <div class="sidebar-section-title">Debug</div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <input type="checkbox" id="debugModeCheckbox">
+                    <label for="debugModeCheckbox">Debug Raw Values</label>
+                </div>
             </div>
-            <div id="deviceConfigRows" class="flex flex-col gap-1"></div>
-        </div>
 
-        <div id="status" class="status-indicator status-disconnected text-center mb-4">Status: Disconnected</div>
-        <div id="errorDisplay" class="status-indicator status-error text-center mb-4" style="display: none;">Error: None</div>
-        <div id="dataCount" class="text-center text-sm text-gray-500 mb-4">Data points collected: 0</div>
+        </div><!-- /sidebarInner -->
+    </div><!-- /sidebar -->
 
+    <!-- ── Sidebar toggle tab ── -->
+    <div id="sidebarToggle" title="Toggle panel">&#x25C4;</div>
 
-        <div id="canvasContainer" class="border rounded-md overflow-hidden shadow">
-            </div>
+    <!-- ── Canvas area ── -->
+    <div id="canvasArea">
+        <div id="canvasContainer"></div>
     </div>
+
+</div><!-- /appShell -->
 
     <script>
     //pi resolution is 1200x720 (w/h)
@@ -274,8 +409,8 @@
 
         // --- Utility Functions ---
         function updateStatus(message, type) {
-            statusDiv.textContent = `Status: ${message}`;
-            statusDiv.className = `status-indicator text-center mb-4 status-${type}`; // Update class for styling
+            statusDiv.textContent = message;
+            statusDiv.className = `status-indicator status-${type}`;
         }
 
         function showError(message) {
@@ -312,13 +447,11 @@
             deviceChannelCountInput.value = deviceConfig.length;
             deviceConfig.forEach((ch, i) => {
                 const row = document.createElement('div');
-                row.className = 'flex items-center gap-2';
+                row.className = 'cfg-row';
                 row.innerHTML = `
-                    <span class="text-xs text-gray-400 w-6 text-right">${i}</span>
-                    <input type="text" value="${ch.name}" data-idx="${i}" data-field="name"
-                        class="config-name w-20 text-sm border-gray-300 rounded px-1 py-0.5 focus:border-indigo-300">
-                    <select data-idx="${i}" data-field="type"
-                        class="config-type text-sm border-gray-300 rounded px-1 py-0.5 focus:border-indigo-300">
+                    <span class="cfg-idx">${i}</span>
+                    <input type="text" value="${ch.name}" data-idx="${i}" data-field="name" class="config-name">
+                    <select data-idx="${i}" data-field="type" class="config-type">
                         <option value="sensor"  ${ch.type==='sensor'  ? 'selected':''}>Sensor</option>
                         <option value="rotary"  ${ch.type==='rotary'  ? 'selected':''}>Rotary</option>
                         <option value="button"  ${ch.type==='button'  ? 'selected':''}>Button</option>
@@ -1687,10 +1820,10 @@
             }; // End visualizations object
 
             p.setup = () => {
-                canvasWidth = canvasContainer.offsetWidth > 100 ? canvasContainer.offsetWidth : 600;
-                // Calculate initial height (adjust logic if needed)
-                canvasHeight = 400;
-                originalCanvasHeight = canvasHeight; // Store the initial height
+                const area = document.getElementById('canvasArea');
+                canvasWidth  = area.offsetWidth  || window.innerWidth;
+                canvasHeight = area.offsetHeight || window.innerHeight;
+                originalCanvasHeight = canvasHeight;
 
                 let cnv = p.createCanvas(canvasWidth, canvasHeight);
                 cnv.parent('canvasContainer'); // Attach canvas to the div
@@ -2331,14 +2464,13 @@
             p.windowResized = () => {
                  // Check if we are in fullscreen targeting the canvas element
                  if (document.fullscreenElement === p.canvas) {
-                     // Resize to full window dimensions
                      p.resizeCanvas(p.windowWidth, p.windowHeight);
-                     console.log(`Resized canvas to fullscreen: ${p.windowWidth}x${p.windowHeight}`);
                  } else {
-                     // Not fullscreen, resize based on container width and original height
-                     canvasWidth = canvasContainer.offsetWidth > 100 ? canvasContainer.offsetWidth : 600;
-                     p.resizeCanvas(canvasWidth, originalCanvasHeight); // Use original height
-                     console.log(`Resized canvas to original: ${canvasWidth}x${originalCanvasHeight}`);
+                     const area = document.getElementById('canvasArea');
+                     canvasWidth  = area.offsetWidth  || window.innerWidth;
+                     canvasHeight = area.offsetHeight || window.innerHeight;
+                     originalCanvasHeight = canvasHeight;
+                     p.resizeCanvas(canvasWidth, canvasHeight);
                  }
                  // Don't redraw if collecting, let the loop handle it, otherwise redraw
                  // (Redrawing is now also triggered by handleFullscreenChange)
@@ -2470,6 +2602,17 @@
             saveSettings();
         });
 
+        // --- Sidebar toggle ---
+        const sidebar = document.getElementById('sidebar');
+        const sidebarToggle = document.getElementById('sidebarToggle');
+        sidebarToggle.addEventListener('click', () => {
+            const collapsed = sidebar.classList.toggle('collapsed');
+            sidebarToggle.classList.toggle('collapsed', collapsed);
+            sidebarToggle.innerHTML = collapsed ? '&#x25BA;' : '&#x25C4;';
+            // Let the canvas resize after the CSS transition finishes
+            setTimeout(() => { if (p5Instance) p5Instance.windowResized(); }, 270);
+        });
+
         // --- Device Config Panel Listeners ---
         showDeviceConfigCheckbox.addEventListener('change', e => {
             deviceConfigPanel.style.display = e.target.checked ? 'block' : 'none';
@@ -2482,94 +2625,30 @@
 
         // --- Fullscreen Change Listener ---
         function handleFullscreenChange() {
-            const mainContainer = document.getElementById('mainContentContainer'); // Get main container
-            const canvasContainer = document.getElementById('canvasContainer'); // Get canvas container
-            const titleElement = document.getElementById('mainTitle');
-            const controlsDiv = document.querySelector('.controls');
-            const statusInfoDivs = [statusDiv, errorDiv, dataCountDiv];
-
             if (document.fullscreenElement === p5Instance?.canvas) {
-                // --- Entering Fullscreen ---
-                console.log("Entering fullscreen for canvas");
+                // Entering fullscreen — hide sidebar
+                sidebar.classList.add('collapsed');
+                sidebarToggle.classList.add('collapsed');
+                sidebarToggle.style.display = 'none';
 
-                // --- Hide specific UI elements ---
-                if (titleElement) titleElement.style.display = 'none';
-                if (controlsDiv) controlsDiv.style.display = 'none';
-                statusInfoDivs.forEach(div => { if (div) div.style.display = 'none'; });
-
-                // --- Make the main container transparent and remove padding/shadow ---
-                if (mainContainer) {
-                    mainContainer.style.backgroundColor = 'transparent';
-                    mainContainer.style.padding = '0';
-                    mainContainer.style.boxShadow = 'none';
-                    mainContainer.style.borderRadius = '0';
-                }
-                // --- Remove border/shadow from canvas container ---
-                if (canvasContainer) {
-                    canvasContainer.style.border = 'none';
-                    canvasContainer.style.boxShadow = 'none';
-                    canvasContainer.style.borderRadius = '0';
-                }
-                 // --- Adjust body styles ---
-                document.body.style.padding = '0';
-                document.body.style.backgroundColor = '#000'; // Match p5 bg clear
-
-                // Trigger windowResized in p5 to adapt canvas size immediately
                 if (p5Instance) {
-                     p5Instance.windowResized(); // Resize canvas first
-                     p5Instance.background(0, 0, 10); // Clear to dark background
-                     if (isCollecting) {
-                         p5Instance.loop();
-                     } else {
-                         p5Instance.redraw();
-                     }
+                    p5Instance.windowResized();
+                    p5Instance.background(0, 0, 10);
+                    if (isCollecting) { p5Instance.loop(); } else { p5Instance.redraw(); }
                 }
-
             } else {
-                // --- Exiting Fullscreen ---
-                console.log("Exiting fullscreen");
+                // Exiting fullscreen — restore sidebar
+                sidebar.classList.remove('collapsed');
+                sidebarToggle.classList.remove('collapsed');
+                sidebarToggle.style.display = '';
+                sidebarToggle.innerHTML = '&#x25C4;';
 
-                // --- Restore specific UI element visibility ---
-                if (titleElement) titleElement.style.display = 'block';
-                if (controlsDiv) controlsDiv.style.display = 'flex';
-                statusInfoDivs.forEach(div => {
-                    if (div && div.id !== 'errorDisplay') {
-                       div.style.display = 'block';
-                    }
-                 });
-                 if (errorDiv && errorDiv.textContent && !errorDiv.textContent.toLowerCase().includes('error: none')) {
-                     errorDiv.style.display = 'block';
-                 } else if (errorDiv) {
-                     errorDiv.style.display = 'none';
-                 }
-
-                // --- Restore container styles by removing inline styles ---
-                if (mainContainer) {
-                     mainContainer.style.backgroundColor = ''; // Revert to CSS (Tailwind)
-                     mainContainer.style.padding = '';
-                     mainContainer.style.boxShadow = '';
-                     mainContainer.style.borderRadius = '';
-                 }
-                 // --- Restore canvas container styles ---
-                 if (canvasContainer) {
-                     canvasContainer.style.border = '';
-                     canvasContainer.style.boxShadow = '';
-                     canvasContainer.style.borderRadius = '';
-                 }
-                  // --- Restore body styles ---
-                 document.body.style.padding = '';
-                 document.body.style.backgroundColor = '';
-
-
-                // Trigger windowResized in p5 to restore original canvas size
-                 if (p5Instance) {
-                    p5Instance.windowResized(); // Resizes based on original height
-                    if (isCollecting) {
-                         p5Instance.loop();
-                     } else {
-                         p5Instance.redraw();
-                     }
-                 }
+                if (p5Instance) {
+                    setTimeout(() => {
+                        p5Instance.windowResized();
+                        if (isCollecting) { p5Instance.loop(); } else { p5Instance.redraw(); }
+                    }, 50);
+                }
             }
         }
 
