@@ -127,6 +127,17 @@
             </div>
             <!-- End Debug Mode Toggle -->
 
+            <!-- Installation Mode Toggle -->
+            <div class="flex items-center gap-1">
+                <input type="checkbox" id="installationModeCheckbox" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
+                <label for="installationModeCheckbox" class="text-sm font-medium text-gray-600">Installation Mode</label>
+            </div>
+            <div id="triggerSensorsContainer" class="flex items-center gap-2" style="display: none;">
+                <label for="triggerSensorsInput" class="text-sm font-medium text-gray-600">Trigger sensors (indices):</label>
+                <input type="text" id="triggerSensorsInput" value="0,1,2,3,4" class="w-28 border-gray-300 rounded-md shadow-sm text-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50" placeholder="e.g. 0,1,2,3,4">
+            </div>
+            <!-- End Installation Mode Toggle -->
+
         </div>
 
         <div id="status" class="status-indicator status-disconnected text-center mb-4">Status: Disconnected</div>
@@ -162,6 +173,16 @@
 
         let numberOfTouchSensors = 8;
 
+        // --- Installation Mode ---
+        let isInstallationMode = false;
+        let isWatching = false;         // Waiting for trigger
+        let displayHoldTimerId = null;  // Timer to reset after displaying final viz
+        const DISPLAY_HOLD_MS = 8000;  // How long to show final viz before resetting (ms)
+        const TRIGGER_MIN_COUNT = 2;   // Min number of qualifying sensors to fire trigger
+        const TRIGGER_THRESHOLD = 30;  // Value threshold per sensor
+        let triggerSensorIndices = [0, 1, 2, 3, 4]; // Which sensor indices to check
+        // -------------------------
+
         let p5Instance; // To hold the p5 sketch instance
         let currentVisualization = 'lines'; // Default FINAL visualization
         let currentLiveVisualization = 'centeredStrips'; // Default LIVE visualization
@@ -180,6 +201,9 @@
         const canvasContainer = document.getElementById('canvasContainer');
         const overlayControlsContainer = document.getElementById('overlayControlsContainer');
         const debugModeCheckbox = document.getElementById('debugModeCheckbox'); // NEW Reference
+        const installationModeCheckbox = document.getElementById('installationModeCheckbox');
+        const triggerSensorsInput = document.getElementById('triggerSensorsInput');
+        const triggerSensorsContainer = document.getElementById('triggerSensorsContainer');
 
         // Add missing references for Speed slider
         const overlaySpeedSlider = document.getElementById('overlaySpeedSlider');
@@ -213,8 +237,13 @@
         function updateButtonStates() {
             const isConnected = port && port.readable;
             connectButton.disabled = isConnected;
-            startButton.disabled = !isConnected || isCollecting;
-            stopButton.disabled = !isCollecting;
+            // In installation mode the trigger handles start/stop automatically
+            startButton.style.display = isInstallationMode ? 'none' : '';
+            stopButton.style.display = isInstallationMode ? 'none' : '';
+            if (!isInstallationMode) {
+                startButton.disabled = !isConnected || isCollecting;
+                stopButton.disabled = !isCollecting;
+            }
             collectDurationInput.disabled = isCollecting;
             collectIndefinitelyCheckbox.disabled = isCollecting;
         }
@@ -228,7 +257,9 @@
                 overlaySpeed: overlaySpeedSlider.value,
                 overlayOpacity: overlayOpacitySlider.value,
                 overlayWeftHeight: overlayWeftHeightSlider.value,
-                debugMode: debugModeCheckbox.checked // Add debug mode state
+                debugMode: debugModeCheckbox.checked,
+                installationMode: installationModeCheckbox.checked,
+                triggerSensors: triggerSensorsInput.value
             };
             try {
                 localStorage.setItem('visualizerSettings', JSON.stringify(settings));
@@ -257,6 +288,8 @@
                     overlayOpacitySlider.value = loadedOpacity; // Set clamped value to slider
                     overlayWeftHeightSlider.value = settings.overlayWeftHeight || '4';
                     debugModeCheckbox.checked = settings.debugMode || false; // Load debug state
+                    installationModeCheckbox.checked = settings.installationMode || false;
+                    if (settings.triggerSensors) triggerSensorsInput.value = settings.triggerSensors;
 
                     // Update global variables based on loaded settings
                     collectIndefinitely = collectIndefinitelyCheckbox.checked;
@@ -266,12 +299,15 @@
                     overlayDrawAlpha = loadedOpacity; // Use the clamped loaded value
                     overlayWeftHeight = parseInt(overlayWeftHeightSlider.value, 10);
                     isDebugMode = debugModeCheckbox.checked; // Update global debug state
+                    isInstallationMode = installationModeCheckbox.checked;
+                    triggerSensorIndices = parseTriggerSensors(triggerSensorsInput.value);
 
                     // Call the function to update dependent UI AFTER all values are set
                     updateUIDependentElements();
 
                 } else {
                      console.log("No saved settings found, using defaults.");
+                     triggerSensorIndices = parseTriggerSensors(triggerSensorsInput.value);
                      // Ensure dependent UI reflects default values (min opacity is handled by default slider value)
                      updateUIDependentElements();
                 }
@@ -280,6 +316,12 @@
                  // Fallback: Ensure dependent UI reflects default values on error
                  updateUIDependentElements();
             }
+        }
+
+        function parseTriggerSensors(str) {
+            return str.split(',')
+                .map(s => parseInt(s.trim(), 10))
+                .filter(n => !isNaN(n) && n >= 0);
         }
 
         function updateUIDependentElements() {
@@ -298,6 +340,11 @@
             const showOverlayControls = liveVizSelect.value === 'wovenTapestryOverlay';
             if (overlayControlsContainer) { // Check if the container exists
                 overlayControlsContainer.style.display = showOverlayControls ? 'flex' : 'none'; // Use flex when showing
+            }
+
+            // Show trigger sensor input only when installation mode is on
+            if (triggerSensorsContainer) {
+                triggerSensorsContainer.style.display = installationModeCheckbox.checked ? 'flex' : 'none';
             }
 
             // Update duration input disabled state and appearance
@@ -472,6 +519,16 @@
                 if (isValidFormat && values.length > 0) {
                     absoluteLatestData = values;
 
+                    // --- Installation Mode Trigger Check ---
+                    if (isInstallationMode && isWatching && !isCollecting) {
+                        const triggerCount = triggerSensorIndices.filter(i => (values[i] || 0) > TRIGGER_THRESHOLD).length;
+                        if (triggerCount >= TRIGGER_MIN_COUNT) {
+                            isWatching = false;
+                            startCollection();
+                        }
+                    }
+                    // ---------------------------------------
+
                     // --- Sensor Control for Overlay Viz ---
                     if (currentLiveVisualization === 'wovenTapestryOverlay' && values.length >= 13) {
                         // Speed (using index 10 -> values[10])
@@ -617,6 +674,7 @@
                              p5Instance.clearCanvas?.(); // Use optional chaining
                          }
                         console.log("Auto-reconnect successful.");
+                        if (isInstallationMode) startWatching();
                         return true; // Indicate success
                     } catch (err) {
                         console.warn(`Failed to auto-reopen remembered port: ${err.message}. Manual connection required.`);
@@ -703,6 +761,7 @@
             if (!isCollecting) return; // Not collecting
 
             isCollecting = false;
+            isWatching = false;
             clearTimeout(collectionTimerId); // Clear timer in case stopped manually
             const collectionEndTime = Date.now();
             const actualDuration = ((collectionEndTime - collectionStartTime) / 1000).toFixed(1);
@@ -715,7 +774,39 @@
                 p5Instance.noLoop();
                 p5Instance.redraw(); // Redraw one last time with the selected visualization
             }
+
+            // In installation mode, schedule automatic reset back to watching
+            if (isInstallationMode) {
+                displayHoldTimerId = setTimeout(resetToWatching, DISPLAY_HOLD_MS);
+            }
         }
+
+        // --- Installation Mode Functions ---
+        function startWatching() {
+            if (!isInstallationMode) return;
+            isWatching = true;
+            clearTimeout(displayHoldTimerId);
+            displayHoldTimerId = null;
+            updateStatus('Watching for activity...', 'connected');
+            if (p5Instance) {
+                p5Instance.loop(); // Keep draw running so the waiting animation plays
+            }
+        }
+
+        function resetToWatching() {
+            // Called after the display hold period ends
+            collectedData = [];
+            expectedDataLength = -1;
+            lastValidProgress = 0;
+            absoluteLatestData = null;
+            overlayCurrentY = -1;
+            updateDataCount();
+            startWatching();
+            if (p5Instance) {
+                p5Instance.loop();
+            }
+        }
+        // ---------------------------------
 
         // --- P5 Sketch Definition ---
         const sketch = (p) => {
@@ -1245,6 +1336,61 @@
             p.draw = () => {
                  particles = p.sketchInstanceVariables.particles; // Ensure local reference is up-to-date
 
+                // --- Installation Mode: Watching/Waiting State ---
+                if (isWatching && !isCollecting) {
+                    p.background(0, 0, 8);
+
+                    const cx = p.width / 2;
+                    const cy = p.height / 2;
+                    const t = p.frameCount;
+
+                    // Animated pulsing ring
+                    const pulse = p.sin(t * 0.04) * 0.5 + 0.5; // 0.0 – 1.0
+                    const ringRadius = 60 + pulse * 20;
+                    const ringAlpha = 0.15 + pulse * 0.25;
+                    p.noFill();
+                    p.stroke(200, 30, 70, ringAlpha);
+                    p.strokeWeight(2);
+                    p.ellipse(cx, cy, ringRadius * 2, ringRadius * 2);
+
+                    // Outer dotted orbit
+                    p.strokeWeight(3);
+                    const numDots = 12;
+                    for (let d = 0; d < numDots; d++) {
+                        const angle = (d / numDots) * p.TWO_PI + t * 0.02;
+                        const dx = cx + p.cos(angle) * (ringRadius + 18);
+                        const dy = cy + p.sin(angle) * (ringRadius + 18);
+                        const dotAlpha = p.map(p.sin(angle - t * 0.02), -1, 1, 0.05, 0.6);
+                        p.stroke(200, 20, 80, dotAlpha);
+                        p.point(dx, dy);
+                    }
+
+                    // "waiting..." text
+                    p.noStroke();
+                    p.fill(0, 0, 85, 0.9);
+                    p.textAlign(p.CENTER, p.CENTER);
+                    p.textSize(18);
+                    p.textFont('sans-serif');
+                    p.text('waiting...', cx, cy);
+
+                    // Subtle sensor value bars along the bottom (ambient live feed)
+                    if (absoluteLatestData && absoluteLatestData.length > 0) {
+                        const barCount = absoluteLatestData.length;
+                        const barW = p.width / barCount;
+                        p.noStroke();
+                        for (let j = 0; j < barCount; j++) {
+                            const val = absoluteLatestData[j] || 0;
+                            const barH = p.map(val, 0, 360, 0, p.height * 0.12);
+                            const hue = p.map(val, 0, 360, 200, 0);
+                            p.fill(hue, 60, 70, 0.4);
+                            p.rect(j * barW, p.height - barH, barW - 1, barH);
+                        }
+                    }
+
+                    return; // Skip remaining draw logic
+                }
+                // -------------------------------------------------
+
                 if (isCollecting) {
                     // --- Check for Debug Mode FIRST ---
                     if (isDebugMode) {
@@ -1601,6 +1747,7 @@
                      p5Instance.clearCanvas?.(); // Use optional chaining
                      p5Instance.redraw(); // Show initial message
                  }
+                 if (port && port.readable && isInstallationMode) startWatching();
             }
         });
 
@@ -1673,6 +1820,30 @@
         debugModeCheckbox.addEventListener('change', (event) => {
             isDebugMode = event.target.checked;
             // No specific dependent UI needs updating here, just save
+            saveSettings();
+        });
+
+        triggerSensorsInput.addEventListener('change', (event) => {
+            triggerSensorIndices = parseTriggerSensors(event.target.value);
+            saveSettings();
+        });
+
+        installationModeCheckbox.addEventListener('change', (event) => {
+            isInstallationMode = event.target.checked;
+            updateUIDependentElements();
+            updateButtonStates();
+            if (isInstallationMode && port && port.readable && !isCollecting) {
+                startWatching();
+            } else if (!isInstallationMode) {
+                // Leaving installation mode: cancel any pending reset
+                isWatching = false;
+                clearTimeout(displayHoldTimerId);
+                displayHoldTimerId = null;
+                if (p5Instance && !isCollecting) {
+                    p5Instance.noLoop();
+                    p5Instance.redraw();
+                }
+            }
             saveSettings();
         });
 
