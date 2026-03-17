@@ -399,6 +399,8 @@
         const vizRegistry = {
             live: [
                 { key: 'auraReading',           label: 'Aura Reading',               enabled: true  },
+                { key: 'mycelium',              label: 'Mycelium',                   enabled: true  },
+                { key: 'sigilWriting',           label: 'Sigil Writing',              enabled: true  },
                 { key: 'centeredStrips',         label: 'Centered Strips',            enabled: true  },
                 { key: 'particleEmitters',       label: 'Particle Emitters',          enabled: true  },
                 { key: 'wovenTapestry',          label: 'Woven Tapestry',             enabled: false },
@@ -407,6 +409,7 @@
             ],
             results: [
                 { key: 'auraDashboard',    label: 'Aura Dashboard',    enabled: true  },
+                { key: 'sigilResult',      label: 'Sigil Result',      enabled: true  },
                 { key: 'dashboard',        label: 'Dashboard',         enabled: true  },
                 { key: 'concentricArcs',   label: 'Concentric Arcs',   enabled: true  },
                 { key: 'lines',            label: 'Line Graph',        enabled: true  },
@@ -1160,9 +1163,10 @@
                  if (p5Instance.sketchInstanceVariables && typeof p5Instance.sketchInstanceVariables.beginDissolve === 'function') {
                     p5Instance.sketchInstanceVariables.beginDissolve();
                  }
-                 // Reset slow-reveal cursor
+                 // Reset slow-reveal cursor and sigil state
                  if (p5Instance.sketchInstanceVariables) {
                     p5Instance.sketchInstanceVariables.resetReadingFrame?.();
+                    p5Instance.sketchInstanceVariables.resetSigil?.();
                  }
 
                  // Set initial background based on selected live visualization
@@ -1200,8 +1204,13 @@
                 if (p5Instance.sketchInstanceVariables) {
                     p5Instance.sketchInstanceVariables.resetDissolve();
                 }
-                p5Instance.noLoop();
-                p5Instance.redraw(); // Redraw one last time with the selected visualization
+                // sigilResult animates its own reveal — keep loop alive; it self-pauses when done
+                if (currentVisualization === 'sigilResult') {
+                    p5Instance.loop();
+                } else {
+                    p5Instance.noLoop();
+                    p5Instance.redraw();
+                }
             }
 
             // In installation mode, schedule automatic reset back to watching
@@ -1253,13 +1262,29 @@
             let sigilDissolveAlpha = 0;   // 0 = sigil visible, 1 = fully dissolved
             let sigilDissolving = false;   // true while transition is running
             let readingFrameIndex = 0;    // slow-reveal cursor into collectedData during aura live viz
+            let myceliumNoiseOffsets = []; // per-tendril noise seed offsets for mycelium viz
+
+            // --- Sigil Writing state ---
+            let sigilPath = [];          // [{x, y, weight, hue}] accumulated during live draw
+            let sigilCursorX = 0;        // current drawing cursor position
+            let sigilCursorY = 0;
+            let sigilCursorAngle = 0;    // current heading (radians)
+            let sigilRevealIndex = 0;    // for results replay animation
+            let sigilRevealDone = false; // true once replay has finished
+            // Cached normalisation — computed once at start of sigilResult render
+            let sigilNorm = null;        // { cx, cy, scale } — path centroid + fit scale
 
             p.sketchInstanceVariables = {
                  particles: [],
                  clearParticles: () => { p.sketchInstanceVariables.particles = []; },
                  beginDissolve: () => { sigilDissolving = true; sigilDissolveAlpha = 0; },
                  resetDissolve: () => { sigilDissolving = false; sigilDissolveAlpha = 0; },
-                 resetReadingFrame: () => { readingFrameIndex = 0; }
+                 resetReadingFrame: () => { readingFrameIndex = 0; },
+                 resetSigil: () => {
+                     sigilPath = [];
+                     sigilCursorX = 0; sigilCursorY = 0; sigilCursorAngle = 0;
+                     sigilRevealIndex = 0; sigilRevealDone = false; sigilNorm = null;
+                 }
             };
             let particles = p.sketchInstanceVariables.particles; // Local reference
 
@@ -1961,6 +1986,130 @@
                     p.rect(m, bgy, W - m * 2, bottomH, 3);
                 }, // End auraDashboard
 
+                sigilResult: (data) => {
+                    // --- Sigil Result — reveal & 4-fold mandala ---
+                    p.background(0, 0, 3);
+
+                    // If no sigilPath was captured, derive a fallback from collectedData
+                    const path = sigilPath.length > 2 ? sigilPath : (() => {
+                        const fallback = [];
+                        let fx = 0, fy = 0, fa = -p.HALF_PI;
+                        const maxR = Math.min(p.width, p.height) * 0.42;
+                        for (let i = 0; i < data.length; i++) {
+                            const d = data[i] || [];
+                            const v0 = (d[0] || 0) / 360, v1 = (d[1] || 0) / 360;
+                            const v2 = (d[2] || 0) / 360, v3 = (d[3] || 0) / 360;
+                            const v6 = (d[6] || 0) / 360, v7 = (d[Math.min(7, d.length-1)] || 0) / 360;
+                            fa += p.map(v0 - v1, -1, 1, -0.15, 0.15);
+                            const dist2c = Math.sqrt(fx * fx + fy * fy);
+                            if (dist2c > maxR * 0.82) fa += (Math.atan2(-fy, -fx) - fa) * 0.06;
+                            const step = p.map((v2 + v3) * 0.5, 0, 1, 1.5, 6);
+                            fx += Math.cos(fa) * step;
+                            fy += Math.sin(fa) * step;
+                            const hue = (270 + i * 0.35) % 360;
+                            fallback.push({ x: fx, y: fy, weight: p.map((v6 + v7) * 0.5, 0, 1, 0.4, 2.8), hue, sat: 75, bri: 85 });
+                        }
+                        return fallback;
+                    })();
+
+                    if (path.length < 2) return;
+
+                    // Advance reveal cursor (~180 frames for full reveal regardless of path length)
+                    const REVEAL_SPEED = Math.max(1, Math.floor(path.length / 180));
+                    if (!sigilRevealDone) {
+                        sigilRevealIndex = Math.min(sigilRevealIndex + REVEAL_SPEED, path.length - 1);
+                        if (sigilRevealIndex >= path.length - 1) sigilRevealDone = true;
+                    }
+                    const drawUpTo = sigilRevealIndex;
+
+                    // --- Compute normalisation (once, using the full path bounding box) ---
+                    if (!sigilNorm) {
+                        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                        for (const pt of path) {
+                            if (pt.x < minX) minX = pt.x; if (pt.x > maxX) maxX = pt.x;
+                            if (pt.y < minY) minY = pt.y; if (pt.y > maxY) maxY = pt.y;
+                        }
+                        const pathW = maxX - minX || 1;
+                        const pathH = maxY - minY || 1;
+                        const pathCx = (minX + maxX) / 2;
+                        const pathCy = (minY + maxY) / 2;
+                        // Fit within canvas leaving 10% padding on each side
+                        const fitW = p.width  * 0.80;
+                        const fitH = p.height * 0.80;
+                        sigilNorm = {
+                            cx: pathCx,
+                            cy: pathCy,
+                            scale: Math.min(fitW / pathW, fitH / pathH)
+                        };
+                    }
+                    const { cx: ncx, cy: ncy, scale: nsc } = sigilNorm;
+                    const screenCx = p.width  / 2;
+                    const screenCy = p.height / 2;
+
+                    // Helper: draw path[0..upTo] centred & scaled. Caller sets up transform.
+                    // Fades in over the first 8% of points and out over the last 8%.
+                    const tx = (pt) => (pt.x - ncx) * nsc;
+                    const ty = (pt) => (pt.y - ncy) * nsc;
+
+                    const drawSigilPath = (upTo, alphaScale) => {
+                        p.noFill();
+                        const fadeLen = Math.max(4, Math.floor((upTo + 1) * 0.08));
+                        for (let i = 1; i <= upTo; i++) {
+                            const pt   = path[i];
+                            const prev = path[i - 1];
+                            // Fade at head and tail
+                            let fade = 1.0;
+                            if (i < fadeLen)           fade = i / fadeLen;
+                            if (i > upTo - fadeLen)    fade = (upTo - i) / fadeLen;
+                            p.stroke(pt.hue, pt.sat, pt.bri, 0.78 * alphaScale * fade);
+                            p.strokeWeight(pt.weight);
+                            p.line(tx(prev), ty(prev), tx(pt), ty(pt));
+                        }
+                    };
+
+                    // --- 4-fold symmetry copies (behind, low alpha) ---
+                    if (sigilRevealDone) {
+                        for (let k = 1; k < 4; k++) {
+                            p.push();
+                            p.translate(screenCx, screenCy);
+                            p.rotate(k * p.HALF_PI);
+                            drawSigilPath(drawUpTo, 0.14);
+                            p.pop();
+                        }
+                    }
+
+                    // --- Primary sigil ---
+                    p.push();
+                    p.translate(screenCx, screenCy);
+                    drawSigilPath(drawUpTo, 1.0);
+                    p.pop();
+
+                    // --- Radial glow bloom ---
+                    if (sigilRevealDone) {
+                        const glowT   = (p.frameCount % 300) / 300;
+                        const glowR   = Math.min(p.width, p.height) * (0.28 + p.sin(glowT * p.TWO_PI) * 0.02);
+                        const lastHue = path[path.length - 1].hue;
+                        p.noStroke();
+                        for (let r = 3; r >= 1; r--) {
+                            p.fill(lastHue, 60, 80, 0.03 * r);
+                            p.ellipse(screenCx, screenCy, glowR * r, glowR * r);
+                        }
+                        p.fill(lastHue, 30, 100, 0.55);
+                        p.ellipse(screenCx, screenCy, 10, 10);
+                        p.fill(lastHue, 10, 100, 0.35);
+                        p.ellipse(screenCx, screenCy, 22, 22);
+
+                        p.noStroke();
+                        p.fill(0, 0, 72, 0.80);
+                        p.textAlign(p.CENTER, p.CENTER);
+                        p.textSize(11);
+                        p.textFont('sans-serif');
+                        p.text('R E A D I N G   C O M P L E T E', p.width / 2, p.height - 28);
+                    }
+
+                    if (!sigilRevealDone) p.loop(); else p.noLoop();
+                }, // End sigilResult
+
             }; // End visualizations object
 
             p.setup = () => {
@@ -2513,6 +2662,190 @@
                             p.ellipse(cx, cy, glowR * 2.5, glowR * 2.5);
                             p.fill(45, 30, 100, 0.06);
                             p.ellipse(cx, cy, glowR * 1.2, glowR * 1.2);
+
+                            break;
+                        }
+
+                        case 'mycelium': {
+                            // --- Mycelium / Organic Cell ---
+                            // Dark translucent background — gentle trails
+                            p.background(0, 0, 4, 0.18);
+
+                            const mcx = p.width / 2;
+                            const mcy = p.height / 2;
+                            const mT  = p.frameCount * 0.012; // slow global time
+                            const mN  = numStreams || 8;
+                            const maxReach = Math.min(p.width, p.height) * 0.42;
+
+                            // Initialise per-tendril noise offsets once
+                            if (myceliumNoiseOffsets.length !== mN) {
+                                myceliumNoiseOffsets = Array.from({ length: mN }, (_, i) => i * 47.3 + 11.1);
+                            }
+
+                            const liveVals = latestValidData || [];
+
+                            // --- Draw tendrils ---
+                            for (let j = 0; j < mN; j++) {
+                                const val      = liveVals[j] || 0;
+                                const norm     = p.constrain(val / 360, 0, 1);
+                                const baseAngle = (j / mN) * p.TWO_PI - p.HALF_PI;
+                                const nOff     = myceliumNoiseOffsets[j];
+
+                                // Tendril length grows with value; always has a small idle length
+                                const idleLen  = maxReach * 0.06;
+                                const fullLen  = maxReach * (0.15 + norm * 0.85);
+
+                                // Organic wiggle: lateral displacement per segment
+                                const SEGS = 18;
+                                const segLen = fullLen / SEGS;
+
+                                // Colour: cool teal at rest → warm gold/amber when full
+                                const hue = p.map(norm, 0, 1, 165, 45);
+                                const sat = p.map(norm, 0, 1, 55, 90);
+                                const bri = p.map(norm, 0, 1, 45, 92);
+                                // Alpha scales with value so idle tendrils are ghost-like
+                                const strokeAlpha = p.map(norm, 0, 1, 0.18, 0.72);
+                                const sw = p.map(norm, 0, 1, 0.6, 2.2);
+
+                                p.stroke(hue, sat, bri, strokeAlpha);
+                                p.strokeWeight(sw);
+                                p.noFill();
+                                p.beginShape();
+
+                                let px = mcx, py = mcy;
+                                for (let s = 0; s <= SEGS; s++) {
+                                    const frac    = s / SEGS;
+                                    // Noise-based lateral wobble — amplitude tapers at base and tip
+                                    const wobbleAmp = maxReach * 0.055 * Math.sin(frac * Math.PI);
+                                    const noiseVal  = p.noise(nOff + frac * 2.4, mT + j * 0.6);
+                                    const lateral   = p.map(noiseVal, 0, 1, -wobbleAmp, wobbleAmp);
+
+                                    // Walk outward along baseAngle, displaced laterally
+                                    const perpAngle = baseAngle + p.HALF_PI;
+                                    const dist      = frac * fullLen;
+                                    px = mcx + Math.cos(baseAngle) * dist + Math.cos(perpAngle) * lateral;
+                                    py = mcy + Math.sin(baseAngle) * dist + Math.sin(perpAngle) * lateral;
+                                    p.curveVertex(px, py);
+                                }
+                                p.endShape();
+
+                                // Glowing tip — size and brightness scale with value
+                                if (norm > 0.05) {
+                                    const tipR = p.map(norm, 0, 1, 1.5, 6);
+                                    p.noStroke();
+                                    p.fill(hue, sat * 0.8, 100, strokeAlpha * 0.9);
+                                    p.ellipse(px, py, tipR * 2, tipR * 2);
+                                    // Inner bright core
+                                    p.fill(hue, 20, 100, strokeAlpha * 0.5);
+                                    p.ellipse(px, py, tipR * 0.8, tipR * 0.8);
+                                }
+                            }
+
+                            // --- Central cell body ---
+                            // Pulses gently; grows slightly with overall energy
+                            const mcEnergy = liveVals.reduce((s, v) => s + (v || 0), 0) / (mN * 360);
+                            const cellR    = p.map(mcEnergy, 0, 1, 8, 22) + p.sin(mT * 4) * 2;
+                            // Outer soft glow
+                            p.noStroke();
+                            p.fill(165, 60, 70, 0.10);
+                            p.ellipse(mcx, mcy, (cellR + 16) * 2, (cellR + 16) * 2);
+                            // Mid ring
+                            p.fill(165, 50, 85, 0.18);
+                            p.ellipse(mcx, mcy, (cellR + 6) * 2, (cellR + 6) * 2);
+                            // Core
+                            const coreHue = p.map(mcEnergy, 0, 1, 165, 55);
+                            p.fill(coreHue, 70, 95, 0.75);
+                            p.ellipse(mcx, mcy, cellR * 2, cellR * 2);
+                            // Bright nucleus
+                            p.fill(coreHue, 20, 100, 0.55);
+                            p.ellipse(mcx, mcy, cellR * 0.45, cellR * 0.45);
+
+                            break;
+                        }
+
+                        case 'sigilWriting': {
+                            // --- Sigil Writing — automatic drawing ---
+                            // Very faint background each frame → ghost trails of earlier strokes
+                            p.background(0, 0, 4, 0.12);
+
+                            const sw_cx = p.width  / 2;
+                            const sw_cy = p.height / 2;
+                            const sw_t  = p.frameCount;
+                            const sw_N  = numStreams || 8;
+                            const sw_maxR = Math.min(p.width, p.height) * 0.44;
+
+                            // Initialise cursor to canvas centre on first frame
+                            if (sigilPath.length === 0) {
+                                sigilCursorX     = sw_cx;
+                                sigilCursorY     = sw_cy;
+                                sigilCursorAngle = -p.HALF_PI;
+                            }
+
+                            const sw_vals = latestValidData || [];
+
+                            // Derive cursor movement from sensor values
+                            // Sensors 0–1 → angular bias (turn left / right)
+                            const v0 = (sw_vals[0] || 0) / 360;
+                            const v1 = (sw_vals[1] || 0) / 360;
+                            const turnBias = p.map(v0 - v1, -1, 1, -0.18, 0.18);
+
+                            // Sensors 2–3 → step length
+                            const v2 = (sw_vals[2] || 0) / 360;
+                            const v3 = (sw_vals[3] || 0) / 360;
+                            const stepLen = p.map((v2 + v3) * 0.5, 0, 1, 1.2, 7.5);
+
+                            // Sensors 4–5 → curvature noise influence
+                            const v4 = (sw_vals[4] || 0) / 360;
+                            const v5 = (sw_vals[5] || 0) / 360;
+                            const curvAmt = p.map((v4 + v5) * 0.5, 0, 1, 0.04, 0.38);
+                            const noiseAngle = p.map(p.noise(sw_t * 0.008, 99.1), 0, 1, -curvAmt, curvAmt);
+
+                            // Sensors 6–7 → stroke weight and hue
+                            const v6 = (sw_vals[6] || 0) / 360;
+                            const v7 = (sw_vals[7 < sw_N ? 7 : 6] || 0) / 360;
+                            const sw_weight = p.map((v6 + v7) * 0.5, 0, 1, 0.4, 2.8);
+                            // Hue drifts through deep violet → crimson → gold over time
+                            const sw_hue = (270 + sw_t * 0.35) % 360;
+                            const sw_sat = p.map((v6 + v7) * 0.5, 0, 1, 55, 90);
+                            const sw_bri = p.map((v6 + v7) * 0.5, 0, 1, 55, 95);
+
+                            // Update cursor
+                            sigilCursorAngle += turnBias + noiseAngle;
+
+                            // Soft boundary pull — nudge angle back toward centre when drifting far
+                            const distFromCentre = p.dist(sigilCursorX, sigilCursorY, sw_cx, sw_cy);
+                            if (distFromCentre > sw_maxR * 0.82) {
+                                const angleToCenter = Math.atan2(sw_cy - sigilCursorY, sw_cx - sigilCursorX);
+                                const angleDiff = angleToCenter - sigilCursorAngle;
+                                sigilCursorAngle += angleDiff * 0.06;
+                            }
+
+                            sigilCursorX += Math.cos(sigilCursorAngle) * stepLen;
+                            sigilCursorY += Math.sin(sigilCursorAngle) * stepLen;
+
+                            // Hard-clamp to canvas bounds (with padding)
+                            const pad = 30;
+                            sigilCursorX = p.constrain(sigilCursorX, pad, p.width  - pad);
+                            sigilCursorY = p.constrain(sigilCursorY, pad, p.height - pad);
+
+                            // Store point
+                            sigilPath.push({ x: sigilCursorX, y: sigilCursorY, weight: sw_weight, hue: sw_hue, sat: sw_sat, bri: sw_bri });
+
+                            // Draw the last segment (just the new addition)
+                            if (sigilPath.length >= 2) {
+                                const prev = sigilPath[sigilPath.length - 2];
+                                const curr = sigilPath[sigilPath.length - 1];
+                                p.stroke(curr.hue, curr.sat, curr.bri, 0.82);
+                                p.strokeWeight(curr.weight);
+                                p.line(prev.x, prev.y, curr.x, curr.y);
+                            }
+
+                            // Glowing cursor dot
+                            p.noStroke();
+                            p.fill(sw_hue, 40, 100, 0.55);
+                            p.ellipse(sigilCursorX, sigilCursorY, 7, 7);
+                            p.fill(sw_hue, 20, 100, 0.30);
+                            p.ellipse(sigilCursorX, sigilCursorY, 14, 14);
 
                             break;
                         }
