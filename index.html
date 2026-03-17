@@ -7,6 +7,7 @@
     <title>P5.js Serial Data Visualizer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <script src="idb.js"></script>
     <style>
         *, *::before, *::after { box-sizing: border-box; }
 
@@ -299,6 +300,23 @@
                 </div>
             </div>
 
+            <!-- Gallery -->
+            <div>
+                <div class="sidebar-section-title">Gallery</div>
+                <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+                    <input type="checkbox" id="autoSaveCheckbox" checked>
+                    <label for="autoSaveCheckbox">Auto-save results</label>
+                </div>
+                <div id="gallerySaveCount" style="font-size:11px; color:#555; margin-bottom:6px;">Saved: 0 readings</div>
+                <div style="display:flex; gap:6px; margin-bottom:6px;">
+                    <a href="gallery.html" target="_blank" style="flex:1; display:block; padding:5px 8px; border-radius:5px; border:1px solid #2a2a2a; background:#1a1a1a; color:#bbb; font-size:12px; text-align:center; text-decoration:none; cursor:pointer;">Open Gallery</a>
+                </div>
+                <div style="display:flex; gap:6px;">
+                    <button id="exportReadingsBtn" style="flex:1; background:#1a237e; color:#90caf9; border-color:#1a237e;">Export JSON</button>
+                    <button id="clearReadingsBtn"  style="flex:1; background:#3b0f0f; color:#f87171; border-color:#4d1515;">Clear All</button>
+                </div>
+            </div>
+
             <!-- Debug -->
             <div>
                 <div class="sidebar-section-title">Debug</div>
@@ -342,6 +360,7 @@
         let overlayWeftHeight = 4; // Default height of weft rows (pixels) - NEW
         let overlayCurrentY = -1; // Current drawing Y position for overlay (-1 indicates reset needed)
         let isDebugMode = false; // Flag for debug mode state - NEW
+        let autoSaveResults = true; // Whether to save a snapshot after each reading
         let originalCanvasHeight = 400; // Store the original height - NEW
 
         // --- Device Config ---
@@ -493,6 +512,10 @@
         const canvasContainer = document.getElementById('canvasContainer');
         const overlayControlsContainer = document.getElementById('overlayControlsContainer');
         const debugModeCheckbox = document.getElementById('debugModeCheckbox'); // NEW Reference
+        const autoSaveCheckbox    = document.getElementById('autoSaveCheckbox');
+        const gallerySaveCount    = document.getElementById('gallerySaveCount');
+        const exportReadingsBtn   = document.getElementById('exportReadingsBtn');
+        const clearReadingsBtn    = document.getElementById('clearReadingsBtn');
         const installationModeCheckbox = document.getElementById('installationModeCheckbox');
         const triggerSensorsInput = document.getElementById('triggerSensorsInput');
         const triggerSensorsContainer = document.getElementById('triggerSensorsContainer');
@@ -534,6 +557,41 @@
 
         function updateDataCount() {
             dataCountDiv.textContent = `Data points collected: ${collectedData.length}`;
+        }
+
+        function updateGallerySaveCount() {
+            ReadingsDB.count().then(n => {
+                gallerySaveCount.textContent = `Saved: ${n} reading${n !== 1 ? 's' : ''}`;
+            }).catch(() => {});
+        }
+
+        async function saveCurrentResult() {
+            if (!autoSaveResults || !p5Instance || collectedData.length === 0) return;
+            try {
+                // Compute per-channel averages
+                const nCh  = collectedData[0].length;
+                const avgs = Array.from({ length: nCh }, (_, j) =>
+                    collectedData.reduce((s, row) => s + (row[j] || 0), 0) / collectedData.length
+                );
+                // Grab viz label from registry
+                const vizEntry = vizRegistry.results.find(v => v.key === currentVisualization);
+                const vizLabel = vizEntry ? vizEntry.label : currentVisualization;
+
+                // Capture canvas at 1920px wide, proportional height
+                const canvas   = p5Instance.canvas;
+                const scale    = 1920 / canvas.width;
+                const offscreen = document.createElement('canvas');
+                offscreen.width  = 1920;
+                offscreen.height = Math.round(canvas.height * scale);
+                const ctx = offscreen.getContext('2d');
+                ctx.drawImage(canvas, 0, 0, offscreen.width, offscreen.height);
+                const imageDataUrl = offscreen.toDataURL('image/jpeg', 0.88);
+
+                await ReadingsDB.save({ vizKey: currentVisualization, vizLabel, averages: avgs, imageDataUrl });
+                updateGallerySaveCount();
+            } catch(e) {
+                console.error('saveCurrentResult failed:', e);
+            }
         }
 
         function updateButtonStates() {
@@ -608,6 +666,7 @@
                 autoSceneChange: autoSceneChange,
                 displayHoldSeconds: DISPLAY_HOLD_MS / 1000,
                 deviceConfig: deviceConfig,
+                autoSaveResults: autoSaveResults,
                 // Save enabled state only (keys are stable, order may change)
                 vizRegistryLive:    vizRegistry.live.map(v => ({ key: v.key, enabled: v.enabled })),
                 vizRegistryResults: vizRegistry.results.map(v => ({ key: v.key, enabled: v.enabled }))
@@ -660,7 +719,11 @@
                     overlayDrawSpeed = parseFloat(overlaySpeedSlider.value);
                     overlayDrawAlpha = loadedOpacity; // Use the clamped loaded value
                     overlayWeftHeight = parseInt(overlayWeftHeightSlider.value, 10);
-                    isDebugMode = debugModeCheckbox.checked; // Update global debug state
+                    isDebugMode = debugModeCheckbox.checked;
+                    if (settings.autoSaveResults !== undefined) {
+                        autoSaveResults = settings.autoSaveResults;
+                        autoSaveCheckbox.checked = autoSaveResults;
+                    }
                     isInstallationMode = installationModeCheckbox.checked;
                     if (settings.deviceConfig && Array.isArray(settings.deviceConfig)) {
                         deviceConfig = settings.deviceConfig;
@@ -1209,9 +1272,13 @@
                 // sigilResult animates its own reveal — keep loop alive; it self-pauses when done
                 if (currentVisualization === 'sigilResult') {
                     p5Instance.loop();
+                    // Save after reveal completes (~4s max)
+                    setTimeout(saveCurrentResult, 4500);
                 } else {
                     p5Instance.noLoop();
                     p5Instance.redraw();
+                    // Save after redraw has painted (next microtask)
+                    setTimeout(saveCurrentResult, 120);
                 }
             }
 
@@ -3369,8 +3436,19 @@
         // Add listener for debug checkbox - NEW
         debugModeCheckbox.addEventListener('change', (event) => {
             isDebugMode = event.target.checked;
-            // No specific dependent UI needs updating here, just save
             saveSettings();
+        });
+
+        autoSaveCheckbox.addEventListener('change', e => {
+            autoSaveResults = e.target.checked;
+            saveSettings();
+        });
+
+        exportReadingsBtn.addEventListener('click', () => ReadingsDB.exportJSON());
+
+        clearReadingsBtn.addEventListener('click', () => {
+            if (!confirm('Delete all saved readings? This cannot be undone.')) return;
+            ReadingsDB.clearAll().then(updateGallerySaveCount);
         });
 
         triggerSensorsInput.addEventListener('change', (event) => {
@@ -3489,6 +3567,7 @@
                  p5Instance = new p5(sketch);
              }
              updateButtonStates();
+             updateGallerySaveCount();
         });
 
     </script>
