@@ -317,6 +317,14 @@
                 </div>
             </div>
 
+            <!-- Live Data Monitor -->
+            <div>
+                <div class="sidebar-section-title">Live Data</div>
+                <div id="liveDataMonitor" style="font-family:monospace; font-size:11px; line-height:1.7;">
+                    <span style="color:#444;">— no data —</span>
+                </div>
+            </div>
+
             <!-- Debug -->
             <div>
                 <div class="sidebar-section-title">Debug</div>
@@ -354,6 +362,7 @@
         let expectedDataLength = -1; // To store the number of values per line, determined by first valid data line
         let lastValidProgress = 0;
         let absoluteLatestData = null; // Store the very last parsed data line
+        let latestRawValues = [];     // All raw serial values for live sidebar display
         let collectIndefinitely = false; // Flag for indefinite collection
         let overlayDrawSpeed = 1.0; // Default drawing speed (pixels per frame)
         let overlayDrawAlpha = 0.7; // Default drawing alpha (0.0 to 1.0)
@@ -1002,6 +1011,7 @@
                 const isValidFormat = values.every(v => !isNaN(v) && v <= 360); // Allow negatives up to 360
 
                 if (isValidFormat && values.length > 0) {
+                    latestRawValues = values; // keep all channels for sidebar monitor
                     // Store only viz-channel values for live display; raw values kept in local `values`
                     absoluteLatestData = vizChannelIndices.length > 0
                         ? vizChannelIndices.map(i => values[i] != null ? values[i] : 0)
@@ -3549,6 +3559,30 @@
              }
              updateButtonStates();
              updateGallerySaveCount();
+
+             // Live data monitor — refresh sidebar every 100ms
+             setInterval(() => {
+                 const el = document.getElementById('liveDataMonitor');
+                 if (!el) return;
+                 if (!latestRawValues.length) {
+                     el.innerHTML = '<span style="color:#444;">— no data —</span>';
+                     return;
+                 }
+                 const labels = ['T0','T1','T2','T3','T4','T5','T6','T7','B1','B2','R1','R2','R3'];
+                 el.innerHTML = latestRawValues.map((v, i) => {
+                     const label = labels[i] ?? `ch${i}`;
+                     const pct   = Math.min(100, Math.max(0, (v / 360) * 100));
+                     const hue   = Math.round((1 - pct / 100) * 200); // blue→red as value rises
+                     return `<div style="display:flex; align-items:center; gap:5px; margin-bottom:2px;">
+                         <span style="color:#555; width:22px; flex-shrink:0;">${label}</span>
+                         <div style="flex:1; height:6px; background:#1a1a1a; border-radius:3px; overflow:hidden;">
+                             <div style="width:${pct}%; height:100%; background:hsl(${hue},70%,55%); border-radius:3px;"></div>
+                         </div>
+                         <span style="color:#777; width:28px; text-align:right; flex-shrink:0;">${Math.round(v)}</span>
+                     </div>`;
+                 }).join('');
+             }, 100);
+
         });
 
     </script>
