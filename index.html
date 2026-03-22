@@ -361,6 +361,7 @@
         let overlayCurrentY = -1; // Current drawing Y position for overlay (-1 indicates reset needed)
         let isDebugMode = false; // Flag for debug mode state - NEW
         let autoSaveResults = true; // Whether to save a snapshot after each reading
+        let capturingScreenshot = false; // Suppresses overlay UI (timers etc.) during screen grab
         let originalCanvasHeight = 400; // Store the original height - NEW
 
         // --- Device Config ---
@@ -577,6 +578,12 @@
                 const vizEntry = vizRegistry.results.find(v => v.key === currentVisualization);
                 const vizLabel = vizEntry ? vizEntry.label : currentVisualization;
 
+                // Hide overlay UI (countdown timers etc.) then redraw before grabbing
+                capturingScreenshot = true;
+                p5Instance.redraw();
+                // Allow the redraw to paint before we read the canvas pixels
+                await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
                 // Capture canvas at 1920px wide, proportional height
                 const canvas   = p5Instance.canvas;
                 const scale    = 1920 / canvas.width;
@@ -587,9 +594,12 @@
                 ctx.drawImage(canvas, 0, 0, offscreen.width, offscreen.height);
                 const imageDataUrl = offscreen.toDataURL('image/jpeg', 0.88);
 
+                capturingScreenshot = false;
+
                 await ReadingsDB.save({ vizKey: currentVisualization, vizLabel, averages: avgs, imageDataUrl });
                 updateGallerySaveCount();
             } catch(e) {
+                capturingScreenshot = false;
                 console.error('saveCurrentResult failed:', e);
             }
         }
@@ -2040,14 +2050,6 @@
                         }
                     }
 
-                    // ── "reading complete" text ──────────────────────────────
-                    p.noStroke();
-                    p.fill(0, 0, 72, 0.7);
-                    p.textAlign(p.CENTER, p.BOTTOM);
-                    p.textSize(11);
-                    p.textFont('sans-serif');
-                    p.text('reading complete', centreX, bgy - 6);
-
                     // ── Panel border lines ───────────────────────────────────
                     p.noFill();
                     p.stroke(0, 0, 28, 0.4);
@@ -2171,12 +2173,6 @@
                         p.ellipse(screenCx, screenCy, 22, 22);
                         */
 
-                        p.noStroke();
-                        p.fill(0, 0, 72, 0.80);
-                        p.textAlign(p.CENTER, p.CENTER);
-                        p.textSize(11);
-                        p.textFont('sans-serif');
-                        p.text('R E A D I N G   C O M P L E T E', p.width / 2, p.height - 28);
                     }
 
                     if (!sigilRevealDone) p.loop(); else p.noLoop();
@@ -2321,14 +2317,6 @@
                     p.strokeWeight(0.8);
                     p.ellipse(cx, H * 0.50, W * 0.48, H * 0.58);
 
-                    // Label
-                    p.noStroke();
-                    p.fill(0, 0, 68, 80);
-                    p.textAlign(p.CENTER, p.CENTER);
-                    p.textSize(11);
-                    p.textFont('sans-serif');
-                    p.text('R E A D I N G   C O M P L E T E', cx, H - 28);
-
                     // Grain overlay
                     p.blendMode(p.ADD);
                     p.image(grain, 0, 0);
@@ -2456,13 +2444,6 @@
                     p.pop();
                     grain.remove();
 
-                    // --- Label ---
-                    p.noStroke();
-                    p.fill(bgHue, bgSat * 0.4, bgLight < 50 ? 75 : 20, 0.75);
-                    p.textAlign(p.CENTER, p.CENTER);
-                    p.textSize(11);
-                    p.textFont('sans-serif');
-                    p.text('R E A D I N G   C O M P L E T E', W / 2, H - 28);
                 }, // End anniAlbers
 
             }; // End visualizations object
@@ -2659,7 +2640,7 @@
                     p.textAlign(p.CENTER, p.CENTER);
                     p.textSize(13);
                     p.textFont('sans-serif');
-                    p.text('waiting...', cx, cy + nodeRadius + 36);
+                    //p.text('waiting...', cx, cy + nodeRadius + 36);
 
                     // --- Sensor bars at bottom (commented out for now) ---
                     // if (absoluteLatestData && absoluteLatestData.length > 0) {
@@ -3217,7 +3198,7 @@
                      } // End switch
 
                     // --- Countdown radial timer (bottom-right corner, all live modes) ---
-                    if (!collectIndefinitely && collectionStartTime) {
+                    if (!capturingScreenshot && !collectIndefinitely && collectionStartTime) {
                         const durationMs = parseInt(collectDurationInput.value, 10) * 1000 || 1;
                         const elapsed = Date.now() - collectionStartTime;
                         const remaining = p.constrain(1 - elapsed / durationMs, 0, 1);
@@ -3263,7 +3244,7 @@
                         try {
                             visualizations[currentVisualization](collectedData);
                             // --- Scene-change countdown timer (same style as reading timer) ---
-                            if (isInstallationMode && autoSceneChange && displayHoldStartTime) {
+                            if (!capturingScreenshot && isInstallationMode && autoSceneChange && displayHoldStartTime) {
                                 const elapsed = Date.now() - displayHoldStartTime;
                                 const remaining = p.constrain(1 - elapsed / DISPLAY_HOLD_MS, 0, 1);
                                 const tr = { x: p.width - 36, y: p.height - 36 };
