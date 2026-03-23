@@ -230,6 +230,30 @@
                 </div>
             </div>
 
+            <!-- Dashboard Layout Config (shown when auraDashboard is selected) -->
+            <div id="dashboardConfigSection" style="display:none;">
+                <div class="sidebar-section-title">Dashboard Layout</div>
+                <div style="display:flex; align-items:center; gap:5px; margin-bottom:6px; font-size:11px; color:#666;">
+                    Grid:
+                    <input type="number" id="dashCols" value="4" min="1" max="8" style="width:30px; text-align:center; padding:2px;" title="Columns">
+                    <span>×</span>
+                    <input type="number" id="dashRows" value="3" min="1" max="8" style="width:30px; text-align:center; padding:2px;" title="Rows">
+                    <span style="color:#444;">cells</span>
+                </div>
+                <div style="display:flex; gap:4px; font-size:9px; color:#444; margin-bottom:3px; padding:0 2px;">
+                    <span style="width:26px; text-align:center;">Col</span>
+                    <span style="width:26px; text-align:center;">Row</span>
+                    <span style="width:26px; text-align:center;">CW</span>
+                    <span style="width:26px; text-align:center;">RH</span>
+                    <span style="flex:1; padding-left:2px;">Type</span>
+                </div>
+                <div id="dashTileList" style="max-height:200px; overflow-y:auto; margin-bottom:6px;"></div>
+                <div style="display:flex; gap:6px;">
+                    <button id="dashAddTileBtn" style="flex:1;">+ Tile</button>
+                    <button id="dashResetBtn" style="flex:1; background:#1a1a1a; color:#555; border-color:#2a2a2a;">Reset</button>
+                </div>
+            </div>
+
             <!-- Overlay controls (shown only for Woven Tapestry Overlay) -->
             <div id="overlayControlsContainer" style="display:none;">
                 <div class="sidebar-section-title">Overlay Settings</div>
@@ -422,6 +446,32 @@
         let p5Instance; // To hold the p5 sketch instance
         let currentVisualization = 'auraDashboard'; // Default FINAL visualization
         let currentLiveVisualization = 'auraReading'; // Default LIVE visualization
+
+        // --- Dashboard grid layout (for auraDashboard viz) ---
+        const DASHBOARD_DEFAULT_LAYOUT = {
+            cols: 4, rows: 3,
+            tiles: [
+                { id: 'a', col: 0, row: 0, colSpan: 1, rowSpan: 2, type: 'sparklines'  },
+                { id: 'b', col: 1, row: 0, colSpan: 2, rowSpan: 2, type: 'sigil'       },
+                { id: 'c', col: 3, row: 0, colSpan: 1, rowSpan: 2, type: 'averages'    },
+                { id: 'd', col: 0, row: 2, colSpan: 4, rowSpan: 1, type: 'linegraph'   },
+            ]
+        };
+        let dashboardLayout = JSON.parse(JSON.stringify(DASHBOARD_DEFAULT_LAYOUT));
+        const DASHBOARD_PANEL_TYPES = {
+            'sparklines':  'Sparklines',
+            'sigil':       'Aura Sigil',
+            'arcs':        'Concentric Arcs',
+            'linegraph':   'Line Graph',
+            'averages':    'Avg Numbers',
+            'swatches':    'Color Swatches',
+            'histogram':   'Histogram',
+            'heatmap':     'Heatmap',
+            'mask':        'Mask',
+            'anniAlbers':  'Anni Albers',
+            'sigilResult': 'Sigil Result',
+            'empty':       'Empty',
+        };
 
         // --- Viz Registry ---
         // Tracks which vizzes are enabled for cycling / display in the selects.
@@ -686,6 +736,7 @@
                 displayHoldSeconds: DISPLAY_HOLD_MS / 1000,
                 deviceConfig: deviceConfig,
                 autoSaveResults: autoSaveResults,
+                dashboardLayout: dashboardLayout,
                 // Save enabled state only (keys are stable, order may change)
                 vizRegistryLive:    vizRegistry.live.map(v => ({ key: v.key, enabled: v.enabled })),
                 vizRegistryResults: vizRegistry.results.map(v => ({ key: v.key, enabled: v.enabled }))
@@ -766,6 +817,11 @@
                             if (entry) entry.enabled = saved.enabled;
                         });
                     }
+                    if (settings.dashboardLayout && settings.dashboardLayout.tiles) {
+                        dashboardLayout = settings.dashboardLayout;
+                        if (!dashboardLayout.cols) dashboardLayout.cols = 4;
+                        if (!dashboardLayout.rows) dashboardLayout.rows = 3;
+                    }
                     renderDeviceConfigRows();
                     renderVizToggles();
                     rebuildVizSelects();
@@ -826,6 +882,12 @@
             const showOverlayControls = liveVizSelect.value === 'wovenTapestryOverlay';
             if (overlayControlsContainer) { // Check if the container exists
                 overlayControlsContainer.style.display = showOverlayControls ? 'flex' : 'none'; // Use flex when showing
+            }
+
+            // Show dashboard layout config only when auraDashboard is selected
+            const dashSection = document.getElementById('dashboardConfigSection');
+            if (dashSection) {
+                dashSection.style.display = vizSelect.value === 'auraDashboard' ? 'block' : 'none';
             }
 
             // Show trigger sensor input only when installation mode is on
@@ -1407,6 +1469,273 @@
             }
 
 
+            // ─── Dashboard panel renderers (close over p + sigilPath) ────────────────
+            // Each takes (data, avgs, nCh, bx, by, bw, bh) — tile bounds in canvas px.
+
+            const _dp_sparklines = (data, avgs, nCh, bx, by, bw, bh) => {
+                if (data.length < 2) return;
+                const rows = Math.min(nCh, 8);
+                const rh = bh / rows;
+                for (let j = 0; j < rows; j++) {
+                    const ry = by + j * rh;
+                    const hue = (j / nCh) * 300;
+                    const lastVal = data[data.length - 1][j] || 0;
+                    if (j > 0) { p.stroke(0,0,18,0.3); p.strokeWeight(0.5); p.line(bx+4,ry,bx+bw-4,ry); }
+                    p.noStroke(); p.fill(hue,60,65,0.7);
+                    p.textAlign(p.LEFT,p.CENTER); p.textSize(Math.min(rh*0.44,9));
+                    p.text(`S${j+1}`, bx+3, ry+rh/2);
+                    p.fill(hue,65,82,0.9); p.textAlign(p.RIGHT,p.CENTER);
+                    p.text(Math.round(lastVal), bx+bw-3, ry+rh/2);
+                    const xOff=20, xEnd=bw-28; if (xEnd<4) continue;
+                    const xStep=xEnd/(data.length-1), yPad=rh*0.14;
+                    p.noFill(); p.stroke(hue,75,85,0.75); p.strokeWeight(0.9);
+                    p.beginShape();
+                    for (let i=0;i<data.length;i++) p.vertex(bx+xOff+i*xStep, p.map(data[i][j]||0,0,360,ry+rh-yPad,ry+yPad));
+                    p.endShape();
+                    p.noStroke(); p.fill(hue,70,75,0.1);
+                    p.beginShape(); p.vertex(bx+xOff,ry+rh);
+                    for (let i=0;i<data.length;i++) p.vertex(bx+xOff+i*xStep, p.map(data[i][j]||0,0,360,ry+rh-yPad,ry+yPad));
+                    p.vertex(bx+xOff+(data.length-1)*xStep,ry+rh); p.endShape(p.CLOSE);
+                    const barH=p.map(lastVal,0,360,0,rh*0.7);
+                    p.noStroke(); p.fill(hue,80,85,0.5); p.rect(bx+bw-5,ry+rh-barH,4,barH);
+                }
+            };
+
+            const _dp_sigil = (data, avgs, nCh, bx, by, bw, bh) => {
+                const cx=bx+bw/2, cy=by+bh/2, r=Math.min(bw,bh)*0.42;
+                const totalAvg=avgs.reduce((s,v)=>s+v,0);
+                const energy=p.constrain(totalAvg/(nCh*360),0,1);
+                p.noFill(); p.stroke(0,0,22,0.4); p.strokeWeight(0.5); p.ellipse(cx,cy,r*2.15,r*2.15);
+                p.noStroke();
+                for (let j=0;j<nCh;j++) {
+                    const angle=(j/nCh)*p.TWO_PI-p.HALF_PI, avg=avgs[j];
+                    const lobeLen=p.map(avg,0,360,0,r*0.92), lobeW=lobeLen*0.38;
+                    const hue=p.map(avg,0,360,260,45), sat=p.map(avg,0,360,40,90), bri=p.map(avg,0,360,40,95);
+                    for (let pass=0;pass<3;pass++) {
+                        const sc=1+pass*0.35, a=[0.35,0.18,0.07][pass];
+                        p.fill(hue,sat*(1-pass*0.2),bri,a);
+                        p.push(); p.translate(cx,cy); p.rotate(angle); p.ellipse(lobeLen*0.5,0,lobeLen*sc,lobeW*sc); p.pop();
+                    }
+                }
+                for (let j=0;j<nCh;j++) {
+                    const angle=(j/nCh)*p.TWO_PI-p.HALF_PI, avg=avgs[j];
+                    const tipLen=p.map(avg,0,360,2,r*0.44), hue=p.map(avg,0,360,260,45);
+                    const sw=Math.max(2,r*0.025);
+                    const tx=cx+p.cos(angle)*tipLen, ty=cy+p.sin(angle)*tipLen;
+                    const sx1=cx+p.cos(angle+p.HALF_PI)*sw, sy1=cy+p.sin(angle+p.HALF_PI)*sw;
+                    const sx2=cx+p.cos(angle-p.HALF_PI)*sw, sy2=cy+p.sin(angle-p.HALF_PI)*sw;
+                    p.fill(hue,80,90,0.55); p.noStroke();
+                    p.beginShape(); p.vertex(tx,ty); p.vertex(sx1,sy1); p.vertex(sx2,sy2); p.endShape(p.CLOSE);
+                }
+                if (data.length>1) {
+                    const rs=(r*0.88)/nCh, aStep=p.TWO_PI/data.length; p.noFill();
+                    for (let j=0;j<nCh;j++) {
+                        const rr=(j+0.5)*rs; p.strokeWeight(Math.max(0.6,rs*0.3));
+                        for (let i=0;i<data.length;i++) {
+                            const val=data[i][j]||0; if(val<=0) continue;
+                            const sa=i*aStep-p.HALF_PI, ea=(i+1)*aStep-p.HALF_PI-p.radians(0.5);
+                            if(ea<=sa) continue;
+                            p.stroke((j/nCh)*300,75,88,p.map(val,0,360,0.05,0.5)); p.arc(cx,cy,rr*2,rr*2,sa,ea);
+                        }
+                    }
+                }
+                p.noStroke();
+                p.fill(p.lerp(200,45,energy),50,100,0.12); p.ellipse(cx,cy,r*0.18,r*0.18);
+                p.fill(p.lerp(200,45,energy),60,100,0.5);  p.ellipse(cx,cy,r*0.06,r*0.06);
+            };
+
+            const _dp_arcs = (data, avgs, nCh, bx, by, bw, bh) => {
+                if (data.length<2) return;
+                const cx=bx+bw/2, cy=by+bh/2, r=Math.min(bw,bh)*0.46;
+                const rs=(r*0.95)/nCh, aStep=p.TWO_PI/data.length; p.noFill();
+                for (let j=0;j<nCh;j++) {
+                    const rr=(j+0.5)*rs; p.strokeWeight(Math.max(0.8,rs*0.35));
+                    for (let i=0;i<data.length;i++) {
+                        const val=data[i][j]||0; if(val<=0) continue;
+                        const sa=i*aStep-p.HALF_PI, ea=(i+1)*aStep-p.HALF_PI-p.radians(0.4);
+                        if(ea<=sa) continue;
+                        p.stroke((j/nCh)*300,75,88,p.map(val,0,360,0.05,0.55)); p.arc(cx,cy,rr*2,rr*2,sa,ea);
+                    }
+                }
+            };
+
+            const _dp_linegraph = (data, avgs, nCh, bx, by, bw, bh) => {
+                if (data.length<2) return;
+                const pad=6, xStep=bw/(data.length-1);
+                for (let j=0;j<nCh;j++) {
+                    const hue=(j/nCh)*300; p.noFill(); p.stroke(hue,75,85,0.65); p.strokeWeight(0.9);
+                    p.beginShape();
+                    for (let i=0;i<data.length;i++) p.vertex(bx+i*xStep, p.map(data[i][j]||0,0,360,by+bh-pad,by+pad));
+                    p.endShape();
+                }
+            };
+
+            const _dp_averages = (data, avgs, nCh, bx, by, bw, bh) => {
+                const rows=Math.min(nCh,8), half=Math.ceil(rows/2), colW=bw/2, rh=bh/half;
+                for (let j=0;j<rows;j++) {
+                    const col=j<half?0:1, row=j<half?j:j-half;
+                    const rx=bx+col*colW, ry=by+row*rh, rw=colW;
+                    const v=avgs[j]||0, hue=p.map(v,0,360,260,45), sat=p.map(v,0,360,40,90), bri=p.map(v,0,360,40,95);
+                    if (row>0) { p.stroke(0,0,18,0.3); p.strokeWeight(0.5); p.line(rx+3,ry,rx+rw-3,ry); }
+                    if (col===1&&row===0) { p.stroke(0,0,18,0.3); p.strokeWeight(0.5); p.line(rx,by+4,rx,by+bh-4); }
+                    p.noStroke(); p.fill(0,0,45,0.6);
+                    p.textAlign(p.LEFT,p.TOP); p.textSize(Math.min(rh*0.38,8));
+                    p.text(`S${j+1}`, rx+4, ry+2);
+                    const numSz=p.constrain(rh*0.48,9,22);
+                    p.textSize(numSz); p.textAlign(p.LEFT,p.CENTER); p.fill(hue,sat,bri,0.95);
+                    p.text(Math.round(v), rx+18, ry+rh*0.52);
+                    const barY=ry+rh-4, barMaxW=rw-8, barFillW=p.map(v,0,360,0,barMaxW);
+                    p.noStroke(); p.fill(0,0,18); p.rect(rx+4,barY,barMaxW,3,2);
+                    p.fill(hue,sat,bri,0.75); if(barFillW>0) p.rect(rx+4,barY,barFillW,3,2);
+                }
+            };
+
+            const _dp_swatches = (data, avgs, nCh, bx, by, bw, bh) => {
+                const cols=Math.ceil(Math.sqrt(nCh)), rows=Math.ceil(nCh/cols);
+                const sw=bw/cols, sh=bh/rows, pad=2;
+                for (let j=0;j<nCh;j++) {
+                    const col=j%cols, row=Math.floor(j/cols);
+                    const sx=bx+col*sw+pad, sy=by+row*sh+pad;
+                    const v=avgs[j]||0, hue=p.map(v,0,360,260,45), sat=p.map(v,0,360,40,90), bri=p.map(v,0,360,40,95);
+                    p.noStroke(); p.fill(hue,sat,bri,0.9); p.rect(sx,sy,sw-pad*2,sh-pad*2,3);
+                    const tsz=Math.min(sw*0.28,sh*0.28,10);
+                    p.fill(0,0,100,0.75); p.textAlign(p.CENTER,p.CENTER); p.textSize(tsz);
+                    p.text(`S${j+1}`, sx+(sw-pad*2)/2, sy+(sh-pad*2)*0.35);
+                    p.textSize(tsz*1.15); p.text(Math.round(v), sx+(sw-pad*2)/2, sy+(sh-pad*2)*0.68);
+                }
+            };
+
+            const _dp_histogram = (data, avgs, nCh, bx, by, bw, bh) => {
+                const bins=12, binW=360/bins, counts=new Array(bins).fill(0);
+                for (const row of data) for (let j=0;j<nCh;j++) counts[Math.min(bins-1,Math.floor((row[j]||0)/binW))]++;
+                const maxC=Math.max(...counts,1), barW=bw/bins, pad=5;
+                p.noStroke();
+                for (let b=0;b<bins;b++) {
+                    const barH=p.map(counts[b],0,maxC,0,bh-pad*2);
+                    p.fill((b/bins)*300,70,80,0.8); p.rect(bx+b*barW+1,by+bh-pad-barH,barW-2,barH,2,2,0,0);
+                }
+                p.fill(0,0,40,0.5); p.textSize(7);
+                p.textAlign(p.LEFT,p.BOTTOM); p.text('0',bx+2,by+bh-1);
+                p.textAlign(p.RIGHT,p.BOTTOM); p.text('360',bx+bw-2,by+bh-1);
+            };
+
+            const _dp_heatmap = (data, avgs, nCh, bx, by, bw, bh) => {
+                if (!data.length) return;
+                const colW=bw/data.length, rowH=bh/nCh;
+                for (let i=0;i<data.length;i++) for (let j=0;j<nCh;j++) {
+                    const v=data[i][j]||0;
+                    p.noStroke(); p.fill(p.map(v,0,360,200,15),80,p.map(v,0,360,20,90),0.9);
+                    p.rect(bx+i*colW,by+j*rowH,colW,rowH);
+                }
+            };
+
+            const _dp_mask = (data, avgs, nCh, bx, by, bw, bh) => {
+                const norm=avgs.map(v=>p.constrain(v/360,0,1));
+                p.push();
+                p.translate(bx,by); p.scale(bw/p.width, bh/p.height);
+                const W=p.width, H=p.height;
+                p.angleMode(p.DEGREES); p.colorMode(p.HSB,360,100,100,100); p.blendMode(p.ADD); p.noFill();
+                const drawSE=(ex,ey,ew,eh,n)=>{
+                    const na=2/Math.max(n,0.1); p.beginShape();
+                    for(let a=0;a<360;a+=6){const ca=p.cos(a),sa=p.sin(a);p.vertex(ex+Math.pow(Math.abs(ca),na)*ew/2*(ca>=0?1:-1),ey+Math.pow(Math.abs(sa),na)*eh/2*(sa>=0?1:-1));}
+                    p.endShape(p.CLOSE);
+                };
+                const drawSh=(sx,sy,sw,sh,num,m)=>{
+                    switch(num){
+                        case 0:p.ellipse(sx+sw/2,sy+sh/2,sw,sh);break;case 1:p.arc(sx,sy,sw*2,sh*2,0,90,p.PIE);break;
+                        case 2:p.quad(sx,sy,sx+sw/2,sy,sx+sw,sy+sh,sx+sw/2,sy+sh);break;case 3:p.circle(sx+sw/2,sy+sh/2,Math.min(sw,sh));break;
+                        case 4:p.rect(sx,sy,sw,sh,Math.max(sw,sh)*0.3);break;case 5:p.triangle(sx,sy,sx+sw,sy+sh,sx+sw,sy);break;
+                        case 6:drawSE(sx+sw/2,sy+sh/2,sw,sh,m);break;
+                    }
+                };
+                const zones=[{fx:.50,fy:.26,fw:.42,fh:.088,ch:0},{fx:.38,fy:.36,fw:.152,fh:.112,ch:1},
+                    {fx:.62,fy:.36,fw:.152,fh:.112,ch:2},{fx:.31,fy:.50,fw:.136,fh:.168,ch:3},
+                    {fx:.69,fy:.50,fw:.136,fh:.168,ch:4},{fx:.50,fy:.50,fw:.120,fh:.152,ch:5},
+                    {fx:.50,fy:.64,fw:.272,fh:.080,ch:6},{fx:.50,fy:.73,fw:.224,fh:.088,ch:7%nCh}];
+                zones.forEach(z=>{
+                    const v=norm[Math.min(z.ch,norm.length-1)];
+                    const hue=p.map(v,0,1,200,45),sat=p.map(v,0,1,40,95),bri=p.map(v,0,1,40,95);
+                    const shNum=Math.floor(p.map(v,0,1,0,6.99)),angle=p.map(v,0,1,90,270);
+                    const shX=p.map(v,0,1,-7,7),shY=p.map(v,0,1,-5,5);
+                    const sep=Math.max(1,Math.floor(p.map(v,0,1,1,3)));
+                    const mVal=p.map(v,0,1,.4,3.5),swB=p.map(v,0,1,.5,2.2);
+                    const zx=z.fx*W,zy=z.fy*H,zw=z.fw*W,zh=z.fh*H,cw=zw*.70,ch2=zh*.70;
+                    for(const sx of[zx,W-zx]){
+                        p.push(); p.translate(sx,zy); if(sx>W/2) p.scale(-1,1);
+                        for(let i=1.3;i>0;i-=1/sep){
+                            p.push(); p.scale(i); p.strokeWeight(swB/i); p.shearX(shX); p.shearY(shY); p.rotate(angle);
+                            p.translate(-cw/2,-ch2/2); p.stroke(hue,sat,bri,p.map(i,0,1.3,15,85)); drawSh(0,0,cw,ch2,shNum,mVal); p.pop();
+                        }
+                        p.pop();
+                    }
+                });
+                p.blendMode(p.BLEND); p.stroke(0,0,20,35); p.strokeWeight(0.5); p.line(W/2,H*.22,W/2,H*.78);
+                p.noFill(); p.stroke(0,0,35,25); p.strokeWeight(.8); p.ellipse(W/2,H*.5,W*.48,H*.58);
+                p.pop(); // restores transform, blendMode, colorMode, angleMode
+            };
+
+            const _dp_anniAlbers = (data, avgs, nCh, bx, by, bw, bh) => {
+                const n=i=>p.constrain(avgs[i%nCh]/360,0,1);
+                const numCols=Math.max(3,Math.round(p.map(n(0),0,1,3,10)));
+                const numRows=Math.max(3,Math.round(p.map(n(1),0,1,3,10)));
+                const tW=bw/numCols, tH=bh/numRows;
+                for(let col=0;col<numCols;col++) for(let row=0;row<numRows;row++){
+                    const idx=(col*numRows+row)%nCh;
+                    const hBase=p.map(avgs[idx%nCh],0,360,20,280);
+                    const stripes=Math.max(2,Math.round(p.map(n(idx),0,1,2,7)));
+                    const sH=tH/stripes;
+                    for(let s=0;s<stripes;s++){
+                        p.noStroke(); p.fill((hBase+s*18)%360, p.map(n((idx+s)%nCh),0,1,25,85), p.map(n((idx+s+1)%nCh),0,1,30,92), 0.9);
+                        p.rect(bx+col*tW, by+row*tH+s*sH, tW, sH);
+                    }
+                }
+            };
+
+            const _dp_sigilResult = (data, avgs, nCh, bx, by, bw, bh) => {
+                const cx=bx+bw/2, cy=by+bh/2;
+                const srcR=p.width*0.38, sc=Math.min(bw,bh)*0.42/srcR;
+                let path=sigilPath.length>2?sigilPath:null;
+                if(!path){
+                    path=[]; let px=0,py=0;
+                    for(let i=0;i<Math.min(data.length,200);i++){
+                        const angle=p.TWO_PI*(((data[i][0]||0)+(data[i][1]||0))/720+i*0.03);
+                        const step=p.map((data[i][2]||0)/360,0,1,1,4);
+                        px+=p.cos(angle)*step; py+=p.sin(angle)*step;
+                        const d=Math.sqrt(px*px+py*py); if(d>srcR){px*=srcR/d;py*=srcR/d;}
+                        path.push({x:px,y:py});
+                    }
+                }
+                if(path.length<2) return;
+                p.noFill();
+                for(let rot=0;rot<4;rot++){
+                    p.push(); p.translate(cx,cy); p.rotate((rot/4)*p.TWO_PI);
+                    p.beginShape();
+                    for(const pt of path){
+                        p.stroke(p.map(Math.sqrt(pt.x*pt.x+pt.y*pt.y),0,srcR,270,45),75,88,rot===0?0.8:0.2);
+                        p.strokeWeight(0.7); p.curveVertex(pt.x*sc,pt.y*sc);
+                    }
+                    p.endShape(); p.pop();
+                }
+            };
+
+            const dashPanelRender = (type, data, avgs, nCh, bx, by, bw, bh) => {
+                switch(type) {
+                    case 'sparklines':  _dp_sparklines(data,avgs,nCh,bx,by,bw,bh);  break;
+                    case 'sigil':       _dp_sigil(data,avgs,nCh,bx,by,bw,bh);       break;
+                    case 'arcs':        _dp_arcs(data,avgs,nCh,bx,by,bw,bh);        break;
+                    case 'linegraph':   _dp_linegraph(data,avgs,nCh,bx,by,bw,bh);   break;
+                    case 'averages':    _dp_averages(data,avgs,nCh,bx,by,bw,bh);    break;
+                    case 'swatches':    _dp_swatches(data,avgs,nCh,bx,by,bw,bh);    break;
+                    case 'histogram':   _dp_histogram(data,avgs,nCh,bx,by,bw,bh);   break;
+                    case 'heatmap':     _dp_heatmap(data,avgs,nCh,bx,by,bw,bh);     break;
+                    case 'mask':        _dp_mask(data,avgs,nCh,bx,by,bw,bh);        break;
+                    case 'anniAlbers':  _dp_anniAlbers(data,avgs,nCh,bx,by,bw,bh);  break;
+                    case 'sigilResult': _dp_sigilResult(data,avgs,nCh,bx,by,bw,bh); break;
+                    // 'empty': nothing
+                }
+            };
+            // ─────────────────────────────────────────────────────────────────────────
+
             // Visualization functions are defined within the sketch scope
             const visualizations = {
                 lines: (data) => {
@@ -1845,226 +2174,44 @@
 
                 auraDashboard: (data) => {
                     if (data.length === 0 || data[0].length === 0) return;
+                    const nCh = data[0].length;
+                    const W = p.width, H = p.height, gap = 6;
 
-                    const NUM_SENSORS = data[0].length;
-                    const W = p.width;
-                    const H = p.height;
-                    const m = 10; // margin
+                    // Per-sensor averages
+                    const avgs = Array.from({length: nCh}, (_,j) =>
+                        data.reduce((s,row) => s+(row[j]||0), 0) / data.length
+                    );
 
-                    // ── Layout ──────────────────────────────────────────────
-                    // Left column  : 4 small line sparklines  (sensors 0–3)
-                    // Right column : 4 small line sparklines  (sensors 4–7)
-                    // Centre       : central aura sigil
-                    // Bottom strip : full-width combined line graph
-                    const colW    = W * 0.20;
-                    const centreX = W * 0.5;
-                    const centreY = H * 0.46;
-                    const centreR = Math.min(W * 0.22, H * 0.36);
-                    const sparkH  = (H * 0.72 - m * 5) / 4;
-                    const sparkW  = colW - m * 2;
-                    const bottomH = H * 0.22 - m;
-
-                    // ── Dark background ──────────────────────────────────────
                     p.background(0, 0, 8);
 
-                    // ── Helper: draw one sparkline in a local box ─────────────
-                    const drawSparkline = (bx, by, bw, bh, sensorIdx, hue) => {
-                        // Panel bg
-                        p.noStroke();
-                        p.fill(0, 0, 13);
-                        p.rect(bx, by, bw, bh, 3);
+                    const { cols, rows, tiles } = dashboardLayout;
+                    const cellW = (W - gap*(cols+1)) / cols;
+                    const cellH = (H - gap*(rows+1)) / rows;
 
-                        // Sensor label + last value
-                        const lastVal = data[data.length - 1][sensorIdx] || 0;
-                        p.fill(hue, 60, 70, 0.55);
-                        p.noStroke();
-                        p.textAlign(p.LEFT, p.TOP);
-                        p.textSize(8);
-                        p.text(`S${sensorIdx + 1}`, bx + 4, by + 3);
-                        p.textAlign(p.RIGHT, p.TOP);
-                        p.textSize(8);
-                        p.text(Math.round(lastVal), bx + bw - 4, by + 3);
+                    for (const tile of tiles) {
+                        if (tile.col >= cols || tile.row >= rows) continue;
+                        const bx = gap + tile.col * (cellW + gap);
+                        const by = gap + tile.row * (cellH + gap);
+                        const bw = tile.colSpan * cellW + (tile.colSpan - 1) * gap;
+                        const bh = tile.rowSpan * cellH + (tile.rowSpan - 1) * gap;
 
-                        // Filled area under curve
-                        if (data.length < 2) return;
-                        const pad = 12;
-                        const xStep = bw / (data.length - 1);
-                        p.noStroke();
-                        p.fill(hue, 70, 75, 0.18);
-                        p.beginShape();
-                        p.vertex(bx, by + bh);
-                        for (let i = 0; i < data.length; i++) {
-                            const v = data[i][sensorIdx] || 0;
-                            const sx = bx + i * xStep;
-                            const sy = p.map(v, 0, 360, by + bh - pad, by + pad);
-                            p.vertex(sx, sy);
-                        }
-                        p.vertex(bx + bw, by + bh);
-                        p.endShape(p.CLOSE);
+                        // Tile background
+                        p.noStroke(); p.fill(0, 0, 11); p.rect(bx, by, bw, bh, 4);
 
-                        // Line
-                        p.noFill();
-                        p.stroke(hue, 80, 88, 0.8);
-                        p.strokeWeight(1);
-                        p.beginShape();
-                        for (let i = 0; i < data.length; i++) {
-                            const v = data[i][sensorIdx] || 0;
-                            const sx = bx + i * xStep;
-                            const sy = p.map(v, 0, 360, by + bh - pad, by + pad);
-                            p.vertex(sx, sy);
-                        }
-                        p.endShape();
+                        // Clip rendering to this tile
+                        p.drawingContext.save();
+                        p.drawingContext.beginPath();
+                        p.drawingContext.rect(bx, by, bw, bh);
+                        p.drawingContext.clip();
 
-                        // Current-value bar at bottom
-                        const barH = 3;
-                        const barW = p.map(lastVal, 0, 360, 0, bw);
-                        p.noStroke();
-                        p.fill(hue, 85, 90, 0.7);
-                        p.rect(bx, by + bh - barH, barW, barH, 0, 0, 1, 1);
-                    };
+                        try { dashPanelRender(tile.type, data, avgs, nCh, bx, by, bw, bh); }
+                        catch(e) { /* swallow per-tile errors */ }
 
-                    // ── Left sparklines (sensors 0–3) ────────────────────────
-                    for (let j = 0; j < 4 && j < NUM_SENSORS; j++) {
-                        const bx = m;
-                        const by = m + j * (sparkH + m);
-                        const hue = (j / NUM_SENSORS) * 300;
-                        drawSparkline(bx, by, sparkW, sparkH, j, hue);
+                        p.drawingContext.restore();
+
+                        // Tile border
+                        p.noFill(); p.stroke(0, 0, 20, 0.3); p.strokeWeight(0.5); p.rect(bx, by, bw, bh, 4);
                     }
-
-                    // ── Right sparklines (sensors 4–7) ───────────────────────
-                    for (let j = 4; j < 8 && j < NUM_SENSORS; j++) {
-                        const bx = W - colW + m;
-                        const by = m + (j - 4) * (sparkH + m);
-                        const hue = (j / NUM_SENSORS) * 300;
-                        drawSparkline(bx, by, sparkW, sparkH, j, hue);
-                    }
-
-                    // ── Central aura sigil ───────────────────────────────────
-                    // Compute per-sensor averages across the whole session
-                    const avgs = [];
-                    for (let j = 0; j < NUM_SENSORS; j++) {
-                        let sum = 0;
-                        for (let i = 0; i < data.length; i++) sum += data[i][j] || 0;
-                        avgs.push(sum / data.length);
-                    }
-                    const totalAvg = avgs.reduce((s, v) => s + v, 0);
-                    const energyRatio = p.constrain(totalAvg / (NUM_SENSORS * 360), 0, 1);
-
-                    // Outer orbit ring
-                    p.noFill();
-                    p.stroke(0, 0, 22, 0.5);
-                    p.strokeWeight(0.5);
-                    p.ellipse(centreX, centreY, centreR * 2.1, centreR * 2.1);
-
-                    // One lobe per sensor — drawn as layered semi-transparent ellipses
-                    p.noStroke();
-                    for (let j = 0; j < NUM_SENSORS; j++) {
-                        const angle = (j / NUM_SENSORS) * p.TWO_PI - p.HALF_PI;
-                        const avg = avgs[j];
-                        const lobeLen = p.map(avg, 0, 360, 0, centreR * 0.95);
-                        const lobeW   = lobeLen * 0.38;
-                        const hue     = p.map(avg, 0, 360, 260, 45);
-                        const sat     = p.map(avg, 0, 360, 40, 90);
-                        const bri     = p.map(avg, 0, 360, 40, 95);
-
-                        // Three alpha passes for soft glow layering
-                        for (let pass = 0; pass < 3; pass++) {
-                            const scale = 1 + pass * 0.35;
-                            const a = [0.35, 0.18, 0.07][pass];
-                            p.fill(hue, sat * (1 - pass * 0.2), bri, a);
-                            p.push();
-                            p.translate(centreX, centreY);
-                            p.rotate(angle);
-                            p.ellipse(lobeLen * 0.5, 0, lobeLen * scale, lobeW * scale);
-                            p.pop();
-                        }
-                    }
-
-                    // 8-point sigil arms over the top
-                    for (let j = 0; j < NUM_SENSORS; j++) {
-                        const angle  = (j / NUM_SENSORS) * p.TWO_PI - p.HALF_PI;
-                        const avg    = avgs[j];
-                        const tipLen = p.map(avg, 0, 360, 4, centreR * 0.45);
-                        const hue    = p.map(avg, 0, 360, 260, 45);
-
-                        const tx = centreX + p.cos(angle) * tipLen;
-                        const ty = centreY + p.sin(angle) * tipLen;
-                        const sa = p.HALF_PI;
-                        const sw = 4;
-                        const sx1 = centreX + p.cos(angle + sa) * sw;
-                        const sy1 = centreY + p.sin(angle + sa) * sw;
-                        const sx2 = centreX + p.cos(angle - sa) * sw;
-                        const sy2 = centreY + p.sin(angle - sa) * sw;
-
-                        p.fill(hue, 80, 90, 0.55);
-                        p.noStroke();
-                        p.beginShape();
-                        p.vertex(tx, ty);
-                        p.vertex(sx1, sy1);
-                        p.vertex(sx2, sy2);
-                        p.endShape(p.CLOSE);
-                    }
-
-                    // Concentric arc rings — one ring per sensor, time as arc angle
-                    const ringPad   = 4;
-                    const ringCount = NUM_SENSORS;
-                    const ringSpacing = (centreR * 0.95) / ringCount;
-                    const angleStep = p.TWO_PI / data.length;
-                    p.noFill();
-                    for (let j = 0; j < ringCount; j++) {
-                        const r   = (j + 0.5) * ringSpacing;
-                        const hue = (j / ringCount) * 300;
-                        p.strokeWeight(p.max(0.8, ringSpacing * 0.35));
-                        for (let i = 0; i < data.length; i++) {
-                            const val = data[i][j] || 0;
-                            if (val <= 0) continue;
-                            const startA = i * angleStep - p.HALF_PI;
-                            const endA   = (i + 1) * angleStep - p.HALF_PI - p.radians(0.4);
-                            if (endA <= startA) continue;
-                            const arcAlpha = p.map(val, 0, 360, 0.08, 0.55);
-                            p.stroke(hue, 75, 88, arcAlpha);
-                            p.arc(centreX, centreY, r * 2, r * 2, startA, endA);
-                        }
-                    }
-
-                    // Centre glow dot
-                    p.noStroke();
-                    const glowHue = p.lerp(200, 45, energyRatio);
-                    p.fill(glowHue, 50, 100, 0.12);
-                    p.ellipse(centreX, centreY, 40, 40);
-                    p.fill(glowHue, 60, 100, 0.5);
-                    p.ellipse(centreX, centreY, 10, 10);
-
-                    // ── Bottom combined line graph ────────────────────────────
-                    const bgy = H - bottomH - m;
-                    p.noStroke();
-                    p.fill(0, 0, 12);
-                    p.rect(m, bgy, W - m * 2, bottomH, 3);
-
-                    if (data.length >= 2) {
-                        const xStep = (W - m * 2) / (data.length - 1);
-                        const padV  = 8;
-                        for (let j = 0; j < NUM_SENSORS; j++) {
-                            const hue = (j / NUM_SENSORS) * 300;
-                            p.noFill();
-                            p.stroke(hue, 75, 85, 0.65);
-                            p.strokeWeight(0.8);
-                            p.beginShape();
-                            for (let i = 0; i < data.length; i++) {
-                                const v  = data[i][j] || 0;
-                                const sx = m + i * xStep;
-                                const sy = p.map(v, 0, 360, bgy + bottomH - padV, bgy + padV);
-                                p.vertex(sx, sy);
-                            }
-                            p.endShape();
-                        }
-                    }
-
-                    // ── Panel border lines ───────────────────────────────────
-                    p.noFill();
-                    p.stroke(0, 0, 28, 0.4);
-                    p.strokeWeight(0.5);
-                    p.rect(m, bgy, W - m * 2, bottomH, 3);
                 }, // End auraDashboard
 
                 sigilResult: (data) => {
@@ -3559,6 +3706,65 @@
              }
              updateButtonStates();
              updateGallerySaveCount();
+
+             // ── Dashboard layout sidebar ──────────────────────────────────────
+             function renderDashTileList() {
+                 const list = document.getElementById('dashTileList');
+                 const colsIn = document.getElementById('dashCols');
+                 const rowsIn = document.getElementById('dashRows');
+                 if (!list) return;
+                 if (colsIn) colsIn.value = dashboardLayout.cols;
+                 if (rowsIn) rowsIn.value = dashboardLayout.rows;
+
+                 const typeOpts = Object.entries(DASHBOARD_PANEL_TYPES)
+                     .map(([k,v]) => `<option value="${k}">${v}</option>`).join('');
+
+                 list.innerHTML = dashboardLayout.tiles.map((tile, i) => `
+                     <div style="display:flex;gap:3px;align-items:center;margin-bottom:3px;">
+                         <input type="number" value="${tile.col}"     min="0" max="7" style="width:26px;text-align:center;padding:1px;" data-idx="${i}" data-field="col"     class="dt-inp" title="Start column">
+                         <input type="number" value="${tile.row}"     min="0" max="7" style="width:26px;text-align:center;padding:1px;" data-idx="${i}" data-field="row"     class="dt-inp" title="Start row">
+                         <input type="number" value="${tile.colSpan}" min="1" max="8" style="width:26px;text-align:center;padding:1px;" data-idx="${i}" data-field="colSpan" class="dt-inp" title="Column span">
+                         <input type="number" value="${tile.rowSpan}" min="1" max="8" style="width:26px;text-align:center;padding:1px;" data-idx="${i}" data-field="rowSpan" class="dt-inp" title="Row span">
+                         <select data-idx="${i}" class="dt-type" style="flex:1;font-size:10px;padding:1px 2px;">
+                             ${Object.entries(DASHBOARD_PANEL_TYPES).map(([k,v]) =>
+                                 `<option value="${k}"${tile.type===k?' selected':''}>${v}</option>`).join('')}
+                         </select>
+                         <button data-idx="${i}" class="dt-del" style="padding:1px 5px;background:#3b0f0f;color:#f87171;border-color:#4d1515;min-width:20px;">×</button>
+                     </div>`).join('');
+
+                 list.querySelectorAll('.dt-inp').forEach(el => el.addEventListener('change', e => {
+                     dashboardLayout.tiles[+e.target.dataset.idx][e.target.dataset.field] = parseInt(e.target.value);
+                     saveSettings(); if (p5Instance) p5Instance.redraw();
+                 }));
+                 list.querySelectorAll('.dt-type').forEach(el => el.addEventListener('change', e => {
+                     dashboardLayout.tiles[+e.target.dataset.idx].type = e.target.value;
+                     saveSettings(); if (p5Instance) p5Instance.redraw();
+                 }));
+                 list.querySelectorAll('.dt-del').forEach(el => el.addEventListener('click', e => {
+                     dashboardLayout.tiles.splice(+e.target.dataset.idx, 1);
+                     renderDashTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
+                 }));
+             }
+
+             document.getElementById('dashCols')?.addEventListener('change', e => {
+                 dashboardLayout.cols = parseInt(e.target.value) || 4;
+                 saveSettings(); if (p5Instance) p5Instance.redraw();
+             });
+             document.getElementById('dashRows')?.addEventListener('change', e => {
+                 dashboardLayout.rows = parseInt(e.target.value) || 3;
+                 saveSettings(); if (p5Instance) p5Instance.redraw();
+             });
+             document.getElementById('dashAddTileBtn')?.addEventListener('click', () => {
+                 dashboardLayout.tiles.push({ id: Date.now().toString(), col:0, row:0, colSpan:1, rowSpan:1, type:'empty' });
+                 renderDashTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
+             });
+             document.getElementById('dashResetBtn')?.addEventListener('click', () => {
+                 dashboardLayout = JSON.parse(JSON.stringify(DASHBOARD_DEFAULT_LAYOUT));
+                 renderDashTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
+             });
+
+             renderDashTileList();
+             // ─────────────────────────────────────────────────────────────────
 
              // Live data monitor — refresh sidebar every 100ms
              setInterval(() => {
