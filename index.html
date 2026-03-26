@@ -491,6 +491,7 @@
                 { key: 'anniAlbers',       label: 'Anni Albers',       enabled: true  },
                 { key: 'maskResult',       label: 'Mask',              enabled: true  },
                 { key: 'sigilResult',      label: 'Sigil Result',      enabled: true  },
+                { key: 'fortuneTeller',    label: 'Fortune Teller',    enabled: true  },
                 { key: 'dashboard',        label: 'Dashboard',         enabled: true  },
                 { key: 'concentricArcs',   label: 'Concentric Arcs',   enabled: true  },
                 { key: 'lines',            label: 'Line Graph',        enabled: true  },
@@ -924,7 +925,7 @@
                         console.log('Attempting to reconnect to previously granted port.');
                         port = existingPorts[0];
                         try {
-                            await port.open({ baudRate: 9600 });
+                            await port.open({ baudRate: 115200 });
                             updateStatus('Reconnected', 'connected');
                             keepReading = true;
                             readLoop(); // Start reading immediately
@@ -947,7 +948,7 @@
                     // --- Fallback: Request port selection from user ---
                     updateStatus('Requesting port selection...', 'collecting');
                     port = await navigator.serial.requestPort();
-                    await port.open({ baudRate: 9600 });
+                    await port.open({ baudRate: 115200 });
 
                     updateStatus('Connected', 'connected');
                     keepReading = true;
@@ -1228,7 +1229,7 @@
                     console.log("Found one remembered port. Attempting auto-reconnect...");
                     port = existingPorts[0];
                     try {
-                        await port.open({ baudRate: 9600 });
+                        await port.open({ baudRate: 115200 });
                         updateStatus('Auto-reconnected', 'connected');
                         keepReading = true;
                         readLoop(); // Start reading
@@ -1314,6 +1315,7 @@
                  if (p5Instance.sketchInstanceVariables) {
                     p5Instance.sketchInstanceVariables.resetReadingFrame?.();
                     p5Instance.sketchInstanceVariables.resetSigil?.();
+                    p5Instance.sketchInstanceVariables.resetFortune?.();
                  }
 
                  // Set initial background based on selected live visualization
@@ -1351,15 +1353,17 @@
                 if (p5Instance.sketchInstanceVariables) {
                     p5Instance.sketchInstanceVariables.resetDissolve();
                 }
-                // sigilResult animates its own reveal — keep loop alive; it self-pauses when done
+                // Animated reveals — keep loop alive; they self-pause when done
                 if (currentVisualization === 'sigilResult') {
                     p5Instance.loop();
-                    // Save after reveal completes (~4s max)
                     setTimeout(saveCurrentResult, 4500);
+                } else if (currentVisualization === 'fortuneTeller') {
+                    p5Instance.loop();
+                    // Save after animation completes (~7.5s at 60fps)
+                    setTimeout(saveCurrentResult, 8000);
                 } else {
                     p5Instance.noLoop();
                     p5Instance.redraw();
-                    // Save after redraw has painted (next microtask)
                     setTimeout(saveCurrentResult, 120);
                 }
             }
@@ -1425,6 +1429,10 @@
             // Cached normalisation — computed once at start of sigilResult render
             let sigilNorm = null;        // { cx, cy, scale } — path centroid + fit scale
 
+            // --- Fortune Teller state ---
+            let fortuneFrame = 0;    // increments each draw call during animation
+            let fortuneDone  = false;
+
             p.sketchInstanceVariables = {
                  particles: [],
                  clearParticles: () => { p.sketchInstanceVariables.particles = []; },
@@ -1435,7 +1443,8 @@
                      sigilPath = [];
                      sigilCursorX = 0; sigilCursorY = 0; sigilCursorAngle = 0;
                      sigilRevealIndex = 0; sigilRevealDone = false; sigilNorm = null;
-                 }
+                 },
+                 resetFortune: () => { fortuneFrame = 0; fortuneDone = false; }
             };
             let particles = p.sketchInstanceVariables.particles; // Local reference
 
@@ -1630,21 +1639,30 @@
             };
 
             const _dp_mask = (data, avgs, nCh, bx, by, bw, bh) => {
+                // Renders entirely in tile coordinates — no colorMode or angleMode changes.
+                // Alpha values are in the sketch's default 0–1.0 range.
                 const norm=avgs.map(v=>p.constrain(v/360,0,1));
-                p.push();
-                p.translate(bx,by); p.scale(bw/p.width, bh/p.height);
-                const W=p.width, H=p.height;
-                p.angleMode(p.DEGREES); p.colorMode(p.HSB,360,100,100,100); p.blendMode(p.ADD); p.noFill();
+                const W=bw, H=bh, cx=bx+W/2;
+
+                p.blendMode(p.ADD); p.noFill();
+
                 const drawSE=(ex,ey,ew,eh,n)=>{
                     const na=2/Math.max(n,0.1); p.beginShape();
-                    for(let a=0;a<360;a+=6){const ca=p.cos(a),sa=p.sin(a);p.vertex(ex+Math.pow(Math.abs(ca),na)*ew/2*(ca>=0?1:-1),ey+Math.pow(Math.abs(sa),na)*eh/2*(sa>=0?1:-1));}
+                    for(let a=0;a<360;a+=6){
+                        const ra=p.radians(a), ca=Math.cos(ra), sa=Math.sin(ra);
+                        p.vertex(ex+Math.pow(Math.abs(ca),na)*ew/2*(ca>=0?1:-1),
+                                 ey+Math.pow(Math.abs(sa),na)*eh/2*(sa>=0?1:-1));
+                    }
                     p.endShape(p.CLOSE);
                 };
                 const drawSh=(sx,sy,sw,sh,num,m)=>{
                     switch(num){
-                        case 0:p.ellipse(sx+sw/2,sy+sh/2,sw,sh);break;case 1:p.arc(sx,sy,sw*2,sh*2,0,90,p.PIE);break;
-                        case 2:p.quad(sx,sy,sx+sw/2,sy,sx+sw,sy+sh,sx+sw/2,sy+sh);break;case 3:p.circle(sx+sw/2,sy+sh/2,Math.min(sw,sh));break;
-                        case 4:p.rect(sx,sy,sw,sh,Math.max(sw,sh)*0.3);break;case 5:p.triangle(sx,sy,sx+sw,sy+sh,sx+sw,sy);break;
+                        case 0:p.ellipse(sx+sw/2,sy+sh/2,sw,sh);break;
+                        case 1:p.arc(sx,sy,sw*2,sh*2,0,p.HALF_PI);break;
+                        case 2:p.quad(sx,sy,sx+sw/2,sy,sx+sw,sy+sh,sx+sw/2,sy+sh);break;
+                        case 3:p.circle(sx+sw/2,sy+sh/2,Math.min(sw,sh));break;
+                        case 4:p.rect(sx,sy,sw,sh,Math.max(sw,sh)*0.3);break;
+                        case 5:p.triangle(sx,sy,sx+sw,sy+sh,sx+sw,sy);break;
                         case 6:drawSE(sx+sw/2,sy+sh/2,sw,sh,m);break;
                     }
                 };
@@ -1655,23 +1673,38 @@
                 zones.forEach(z=>{
                     const v=norm[Math.min(z.ch,norm.length-1)];
                     const hue=p.map(v,0,1,200,45),sat=p.map(v,0,1,40,95),bri=p.map(v,0,1,40,95);
-                    const shNum=Math.floor(p.map(v,0,1,0,6.99)),angle=p.map(v,0,1,90,270);
+                    const shNum=Math.floor(p.map(v,0,1,0,6.99));
+                    const angle=p.map(v,0,1,p.HALF_PI,p.PI+p.HALF_PI); // radians equiv of 90-270°
                     const shX=p.map(v,0,1,-7,7),shY=p.map(v,0,1,-5,5);
                     const sep=Math.max(1,Math.floor(p.map(v,0,1,1,3)));
                     const mVal=p.map(v,0,1,.4,3.5),swB=p.map(v,0,1,.5,2.2);
-                    const zx=z.fx*W,zy=z.fy*H,zw=z.fw*W,zh=z.fh*H,cw=zw*.70,ch2=zh*.70;
-                    for(const sx of[zx,W-zx]){
-                        p.push(); p.translate(sx,zy); if(sx>W/2) p.scale(-1,1);
-                        for(let i=1.3;i>0;i-=1/sep){
-                            p.push(); p.scale(i); p.strokeWeight(swB/i); p.shearX(shX); p.shearY(shY); p.rotate(angle);
-                            p.translate(-cw/2,-ch2/2); p.stroke(hue,sat,bri,p.map(i,0,1.3,15,85)); drawSh(0,0,cw,ch2,shNum,mVal); p.pop();
-                        }
-                        p.pop();
+                    const zw=z.fw*W,zh=z.fh*H,cw=zw*.70,ch2=zh*.70;
+                    const zx=bx+z.fx*W, zy=by+z.fy*H;
+                    // Left side
+                    p.push(); p.translate(zx,zy);
+                    for(let i=1.3;i>0;i-=1/sep){
+                        p.push(); p.scale(i); p.strokeWeight(swB/i); p.shearX(shX); p.shearY(shY); p.rotate(angle);
+                        p.translate(-cw/2,-ch2/2);
+                        p.stroke(hue,sat,bri, p.map(i,0,1.3,0.15,0.85)); // alpha in 0-1 range
+                        drawSh(0,0,cw,ch2,shNum,mVal); p.pop();
                     }
+                    p.pop();
+                    // Right mirror
+                    p.push(); p.translate(bx+W-z.fx*W,zy); p.scale(-1,1);
+                    for(let i=1.3;i>0;i-=1/sep){
+                        p.push(); p.scale(i); p.strokeWeight(swB/i); p.shearX(shX); p.shearY(shY); p.rotate(angle);
+                        p.translate(-cw/2,-ch2/2);
+                        p.stroke(hue,sat,bri, p.map(i,0,1.3,0.15,0.85));
+                        drawSh(0,0,cw,ch2,shNum,mVal); p.pop();
+                    }
+                    p.pop();
                 });
-                p.blendMode(p.BLEND); p.stroke(0,0,20,35); p.strokeWeight(0.5); p.line(W/2,H*.22,W/2,H*.78);
-                p.noFill(); p.stroke(0,0,35,25); p.strokeWeight(.8); p.ellipse(W/2,H*.5,W*.48,H*.58);
-                p.pop(); // restores transform, blendMode, colorMode, angleMode
+                // Axis + silhouette — reset blend first
+                p.blendMode(p.BLEND);
+                p.stroke(0,0,20,0.35); p.strokeWeight(0.5); p.line(cx,by+H*.22,cx,by+H*.78);
+                p.noFill(); p.stroke(0,0,35,0.25); p.strokeWeight(.8); p.ellipse(cx,by+H*.5,W*.48,H*.58);
+                // Explicit state reset — do not rely on push/pop for non-transform state
+                p.blendMode(p.BLEND);
             };
 
             const _dp_anniAlbers = (data, avgs, nCh, bx, by, bw, bh) => {
@@ -1693,7 +1726,7 @@
 
             const _dp_sigilResult = (data, avgs, nCh, bx, by, bw, bh) => {
                 const cx=bx+bw/2, cy=by+bh/2;
-                const srcR=p.width*0.38, sc=Math.min(bw,bh)*0.42/srcR;
+                const maxSrcR=p.width*0.38;
                 let path=sigilPath.length>2?sigilPath:null;
                 if(!path){
                     path=[]; let px=0,py=0;
@@ -1701,18 +1734,22 @@
                         const angle=p.TWO_PI*(((data[i][0]||0)+(data[i][1]||0))/720+i*0.03);
                         const step=p.map((data[i][2]||0)/360,0,1,1,4);
                         px+=p.cos(angle)*step; py+=p.sin(angle)*step;
-                        const d=Math.sqrt(px*px+py*py); if(d>srcR){px*=srcR/d;py*=srcR/d;}
+                        const d=Math.sqrt(px*px+py*py); if(d>maxSrcR){px*=maxSrcR/d;py*=maxSrcR/d;}
                         path.push({x:px,y:py});
                     }
                 }
                 if(path.length<2) return;
+                // Scale from actual path bounding radius — not the theoretical max — so it fills the tile
+                const actualR=Math.max(...path.map(pt=>Math.sqrt(pt.x*pt.x+pt.y*pt.y)),1);
+                const sc=Math.min(bw,bh)*0.46/actualR;
+                const sw=Math.max(0.5, Math.min(bw,bh)*0.003);
                 p.noFill();
                 for(let rot=0;rot<4;rot++){
                     p.push(); p.translate(cx,cy); p.rotate((rot/4)*p.TWO_PI);
                     p.beginShape();
                     for(const pt of path){
-                        p.stroke(p.map(Math.sqrt(pt.x*pt.x+pt.y*pt.y),0,srcR,270,45),75,88,rot===0?0.8:0.2);
-                        p.strokeWeight(0.7); p.curveVertex(pt.x*sc,pt.y*sc);
+                        p.stroke(p.map(Math.sqrt(pt.x*pt.x+pt.y*pt.y),0,actualR,270,45),75,88,rot===0?0.8:0.2);
+                        p.strokeWeight(sw); p.curveVertex(pt.x*sc,pt.y*sc);
                     }
                     p.endShape(); p.pop();
                 }
@@ -2205,7 +2242,13 @@
                         p.drawingContext.clip();
 
                         try { dashPanelRender(tile.type, data, avgs, nCh, bx, by, bw, bh); }
-                        catch(e) { /* swallow per-tile errors */ }
+                        catch(e) { console.warn('Dashboard tile error:', tile.type, e); }
+                        finally {
+                            // Always restore critical state — some panels (mask) change blend/color/angle modes
+                            p.blendMode(p.BLEND);
+                            p.colorMode(p.HSB, 360, 100, 100, 1.0);
+                            p.angleMode(p.RADIANS);
+                        }
 
                         p.drawingContext.restore();
 
@@ -2602,6 +2645,240 @@
                     grain.remove();
 
                 }, // End anniAlbers
+
+                fortuneTeller: (data) => {
+                    // ─── Fortune Teller — elemental reading reveal ───────────────
+                    // Layout: octagram LEFT | fortune list RIGHT | dot gauges BOTTOM
+                    if (!fortuneDone) fortuneFrame++;
+                    const f = fortuneFrame;
+
+                    const ELEMENTS = [
+                        { name: 'EARTH',    hue:  32, sat: 55 },
+                        { name: 'WATER',    hue: 210, sat: 70 },
+                        { name: 'FIRE',     hue:  15, sat: 85 },
+                        { name: 'AIR',      hue:  55, sat: 35 },
+                        { name: 'AETHER',   hue: 270, sat: 60 },
+                        { name: 'SHADOW',   hue: 245, sat: 45 },
+                        { name: 'RADIANCE', hue:  45, sat: 80 },
+                        { name: 'VOID',     hue: 190, sat: 28 },
+                    ];
+                    const FORTUNES = [
+                        ["roots seek deeper soil — rest before you reach",
+                         "steady ground holds you — quiet growth unfolds",
+                         "you are anchored — from this foundation all things rise"],
+                        ["still waters within — hold what you feel",
+                         "your current moves unseen — trust its pull",
+                         "the tide is full — let your intuition carry you"],
+                        ["embers await the breath that will rouse them",
+                         "a steady flame burns — enough to light the way",
+                         "you burn with purpose — transformation follows"],
+                        ["thoughts gather like clouds — clarity will come",
+                         "you move through ideas with ease — keep speaking",
+                         "your mind is sharp — ideas arrive before you seek them"],
+                        ["the veil is thick today — patience thins it",
+                         "unseen currents reach you — you are not alone",
+                         "you touch the larger pattern — no accident"],
+                        ["what is hidden rests — honour what you cannot see",
+                         "something stirs beneath — name it gently",
+                         "what was concealed seeks light — do not look away"],
+                        ["your light turns inward — it will return",
+                         "you emit warmth — others are drawn to what you make",
+                         "you shine without effort — creativity seeks its outlet"],
+                        ["you are full — find the hollow for something new",
+                         "space within holds possibility — do not fill it yet",
+                         "the vast quiet within is your greatest gift"],
+                    ];
+
+                    // Per-channel averages (first 8 channels)
+                    const nCh = data.length > 0 ? data[0].length : 0;
+                    const avgs = [];
+                    for (let c = 0; c < 8; c++) {
+                        if (c >= nCh) { avgs.push(0); continue; }
+                        let sum = 0;
+                        for (let i = 0; i < data.length; i++) sum += (data[i][c] || 0);
+                        avgs.push(data.length > 0 ? sum / data.length : 0);
+                    }
+
+                    const W = p.width, H = p.height;
+                    const fadeIn = (start, dur) => {
+                        const t = p.constrain((f - start) / Math.max(dur, 1), 0, 1);
+                        return t * t;
+                    };
+
+                    // ── Background ──────────────────────────────────────────────
+                    p.background(28, 30, 7);
+
+                    // ── Layout ──────────────────────────────────────────────────
+                    const titleY       = H * 0.065;
+                    const contentTop   = H * 0.13;
+                    const stripTop     = H * 0.82;
+                    const contentH     = stripTop - contentTop;      // main area height
+
+                    // Left panel — octagram
+                    const leftW   = W * 0.42;
+                    const octCX   = leftW * 0.50;
+                    const octCY   = contentTop + contentH * 0.50;
+                    const octR    = Math.min(leftW, contentH) * 0.38;
+                    const labelR  = octR * 1.20;
+
+                    // Right panel — fortune rows
+                    const rightX  = W * 0.44;
+                    const rightW  = W * 0.53;
+                    const rowH    = contentH / 8;
+
+                    // Bottom strip — dot gauges
+                    const stripH  = H - stripTop - H * 0.015;
+                    const colW    = W / 8;
+                    const dotsY   = stripTop + stripH * 0.35;
+                    const labelY  = stripTop + stripH * 0.78;
+                    const dotGrpW = colW * 0.72;
+                    const dotSp   = dotGrpW / 7;
+
+                    // ── Phase 0 (0–45): border ───────────────────────────────────
+                    const bdrA = fadeIn(0, 45);
+                    if (bdrA > 0) {
+                        const pad = Math.max(8, W * 0.013);
+                        const cs  = Math.max(9, W * 0.018);
+                        p.noFill();
+                        p.stroke(38, 40, 50, bdrA * 0.5);
+                        p.strokeWeight(0.8);
+                        p.rect(pad, pad, W - pad * 2, H - pad * 2);
+                        [[pad,pad,1,1],[W-pad,pad,-1,1],[pad,H-pad,1,-1],[W-pad,H-pad,-1,-1]].forEach(([x,y,sx,sy]) => {
+                            p.stroke(38, 40, 62, bdrA * 0.7);
+                            p.line(x, y, x + sx * cs, y);
+                            p.line(x, y, x, y + sy * cs);
+                        });
+                    }
+
+                    // ── Phase 1 (45–90): title ───────────────────────────────────
+                    const titleA = fadeIn(45, 45);
+                    if (titleA > 0) {
+                        p.noStroke();
+                        p.textAlign(p.CENTER, p.CENTER);
+                        p.textSize(Math.max(10, W * 0.021));
+                        p.textFont('Georgia, serif');
+                        p.fill(38, 50, 68, titleA * 0.2);
+                        p.text('\u2736   YOUR READING   \u2736', W * 0.5, titleY + 1.5);
+                        p.fill(38, 35, 90, titleA * 0.88);
+                        p.text('\u2736   YOUR READING   \u2736', W * 0.5, titleY);
+                    }
+
+                    // ── Phase 2 (90–210): octagram builds (left panel) ───────────
+                    if (f > 90) {
+                        const octProg = p.constrain((f - 90) / 120, 0, 1);
+                        const visArms = octProg * 8;
+
+                        // Guide rings
+                        p.noFill();
+                        p.strokeWeight(0.5);
+                        [0.33, 0.66, 1.0].forEach(r => {
+                            p.stroke(38, 15, 32, 0.28 * octProg);
+                            p.ellipse(octCX, octCY, octR * r * 2, octR * r * 2);
+                        });
+
+                        for (let i = 0; i < 8; i++) {
+                            const armProg = p.constrain(visArms - i, 0, 1);
+                            if (armProg === 0) continue;
+                            const angle  = -p.HALF_PI + (i / 8) * p.TWO_PI;
+                            const val01  = avgs[i] / 360;
+                            const el     = ELEMENTS[i];
+                            const armLen = octR * (0.18 + val01 * 0.82) * armProg;
+                            const tipX   = octCX + Math.cos(angle) * armLen;
+                            const tipY   = octCY + Math.sin(angle) * armLen;
+
+                            // Glow halo
+                            p.stroke(el.hue, el.sat, 75, 0.16 * armProg);
+                            p.strokeWeight(5);
+                            p.line(octCX, octCY, tipX, tipY);
+                            // Core line
+                            p.stroke(el.hue, el.sat - 10, 90, 0.55 * armProg);
+                            p.strokeWeight(1.2);
+                            p.line(octCX, octCY, tipX, tipY);
+                            // Tip dot
+                            p.noStroke();
+                            const dr = (2.5 + val01 * 3.5) * armProg;
+                            p.fill(el.hue, el.sat - 15, 96, 0.85 * armProg);
+                            p.ellipse(tipX, tipY, dr * 2, dr * 2);
+
+                            // Full element name at labelR
+                            if (armProg > 0.3) {
+                                const lx = octCX + Math.cos(angle) * labelR;
+                                const ly = octCY + Math.sin(angle) * labelR;
+                                p.fill(el.hue, el.sat - 25, 78, armProg * 0.82);
+                                p.textAlign(p.CENTER, p.CENTER);
+                                p.textSize(Math.max(6, W * 0.012));
+                                p.textFont('sans-serif');
+                                p.text(el.name, lx, ly);
+                            }
+                        }
+
+                        // Centre glow
+                        const cp = Math.min(octProg * 2.5, 1);
+                        p.noStroke();
+                        p.fill(40, 15, 100, cp * (0.45 + 0.28 * Math.sin(f * 0.07)));
+                        p.ellipse(octCX, octCY, 8, 8);
+                        p.fill(40, 5, 100, cp * 0.6);
+                        p.ellipse(octCX, octCY, 3.5, 3.5);
+                    }
+
+                    // ── Vertical divider + bottom strip line (with first row) ────
+                    if (f > 210) {
+                        const divA = fadeIn(210, 25);
+                        p.stroke(38, 20, 40, divA * 0.4);
+                        p.strokeWeight(0.6);
+                        // Vertical divider between panels
+                        p.line(W * 0.43, contentTop, W * 0.43, stripTop - H * 0.01);
+                        // Horizontal line above bottom strip
+                        p.line(W * 0.04, stripTop - H * 0.01, W * 0.96, stripTop - H * 0.01);
+                    }
+
+                    // ── Phase 3 (210–450): fortune rows (right) + dot gauges (bottom)
+                    for (let i = 0; i < 8; i++) {
+                        const rowA = fadeIn(210 + i * 30, 22);
+                        if (rowA === 0) continue;
+                        const el   = ELEMENTS[i];
+                        const val  = avgs[i];
+                        const band = val < 120 ? 0 : val < 240 ? 1 : 2;
+
+                        // ── Right panel row ────────────────────────────────────
+                        const ry = contentTop + i * rowH + rowH * 0.5;
+                        // Element name heading
+                        p.noStroke();
+                        p.textAlign(p.LEFT, p.TOP);
+                        p.textSize(Math.max(8, W * 0.016));
+                        p.textFont('sans-serif');
+                        p.fill(el.hue, el.sat - 5, 85, rowA * 0.9);
+                        p.text(el.name, rightX, ry - rowH * 0.46);
+                        // Fortune text
+                        p.textAlign(p.LEFT, p.TOP);
+                        p.textSize(Math.max(7, W * 0.013));
+                        p.fill(38, 8, 70, rowA * 0.70);
+                        p.text(FORTUNES[i][band], rightX, ry - rowH * 0.46 + Math.max(10, W * 0.019), rightW, rowH * 0.58);
+
+                        // ── Bottom dot gauge column ────────────────────────────
+                        const dotsLit  = Math.round(p.map(val, 0, 360, 0, 8));
+                        const colCX    = colW * i + colW * 0.5;
+                        const grpStart = colCX - dotGrpW * 0.5;
+                        for (let d = 0; d < 8; d++) {
+                            const lit = d < dotsLit;
+                            const dx  = grpStart + d * dotSp;
+                            p.noStroke();
+                            p.fill(el.hue, lit ? el.sat : 8, lit ? 82 : 20, rowA * (lit ? 0.9 : 0.32));
+                            p.ellipse(dx, dotsY, lit ? 5 : 3.5, lit ? 5 : 3.5);
+                        }
+                        // Abbreviated label below dots
+                        p.noStroke();
+                        p.fill(el.hue, el.sat - 28, 68, rowA * 0.65);
+                        p.textAlign(p.CENTER, p.CENTER);
+                        p.textSize(Math.max(6, W * 0.011));
+                        p.textFont('sans-serif');
+                        p.text(el.name.substring(0, 3), colCX, labelY);
+                    }
+
+                    // ── Phase 4 (450+): done ─────────────────────────────────────
+                    if (f >= 450 && !fortuneDone) fortuneDone = true;
+                    if (!fortuneDone) p.loop(); else p.noLoop();
+                }, // End fortuneTeller
 
             }; // End visualizations object
 

@@ -1,3 +1,11 @@
+Major features to do.
+color scheme engine. allow user to pick from a palette of 8 sets of 8 colors that define the palette used in all vizzes. color palettes must be harmonious but varied (e.g. https://esm.sh/rampensau/)
+
+fortune teller mode
+a new viz result that presents an animated result reveal of a mysterious reading emerging from the ether. generate short text defined by each final average reading from each sensor. define 8 characteristics to use for the fortune. inspired by elemental forces and other similar esoteric attributes. e.g "your earth elemental reading [average of sensor1] is [low/medium/high] so you [are/need to/should etc]...[based on mapping a bank of sentiments to the value]  
+
+
+
 Concept Options - 
 
 A — Sigil / Sacred Geometry

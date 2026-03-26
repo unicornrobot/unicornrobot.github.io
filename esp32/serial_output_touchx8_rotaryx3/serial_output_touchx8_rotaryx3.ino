@@ -134,7 +134,7 @@ unsigned long count = 0;
 
 // Smoothing factors. The closer to one (1.0) the smoother the data. Smoothing
 // introduces a delay.
-const float dataSmoothingFactor = 0.10;
+const float dataSmoothingFactor = 0.5;//0.5 default
 const float baselineSmoothingFactor = 0.9999;
 
 //T9 = IO32
@@ -263,7 +263,7 @@ void resetCalibration() {
 /*****************************************************************************/
 void setup()
 {
-  Serial.begin(9600);
+  Serial.begin(115200);
 
   EEPROM.begin(EEPROM_SIZE);
   loadCalibrationFromEEPROM();
@@ -366,5 +366,5 @@ void loop()
   Serial.print(",0,0,"); // button placeholders
   Serial.println(String(rotaryEncoder1.readEncoder()) + "," + String(rotaryEncoder2.readEncoder()) + "," + String(rotaryEncoder3.readEncoder()));
 
-  delay(100);
+  delay(5); // ~200Hz output; smooth data smoothing covers any micro-jitter
 }
