@@ -2715,15 +2715,15 @@
                     const contentH     = stripTop - contentTop;      // main area height
 
                     // Left panel — octagram
-                    const leftW   = W * 0.42;
+                    const leftW   = W * 0.54;
                     const octCX   = leftW * 0.50;
                     const octCY   = contentTop + contentH * 0.50;
                     const octR    = Math.min(leftW, contentH) * 0.38;
                     const labelR  = octR * 1.20;
 
                     // Right panel — fortune rows
-                    const rightX  = W * 0.44;
-                    const rightW  = W * 0.53;
+                    const rightX  = W * 0.56;
+                    const rightW  = W * 0.41;
                     const rowH    = contentH / 8;
 
                     // Bottom strip — dot gauges
@@ -2827,7 +2827,7 @@
                         p.stroke(38, 20, 40, divA * 0.4);
                         p.strokeWeight(0.6);
                         // Vertical divider between panels
-                        p.line(W * 0.43, contentTop, W * 0.43, stripTop - H * 0.01);
+                        p.line(W * 0.54, contentTop, W * 0.54, stripTop - H * 0.01);
                         // Horizontal line above bottom strip
                         p.line(W * 0.04, stripTop - H * 0.01, W * 0.96, stripTop - H * 0.01);
                     }
@@ -2851,9 +2851,9 @@
                         p.text(el.name, rightX, ry - rowH * 0.46);
                         // Fortune text
                         p.textAlign(p.LEFT, p.TOP);
-                        p.textSize(Math.max(7, W * 0.013));
+                        p.textSize(Math.max(7, W * 0.015));
                         p.fill(38, 8, 70, rowA * 0.70);
-                        p.text(FORTUNES[i][band], rightX, ry - rowH * 0.46 + Math.max(10, W * 0.019), rightW, rowH * 0.58);
+                        p.text(FORTUNES[i][band], rightX, ry - rowH * 0.46 + Math.max(10, W * 0.021), rightW, rowH * 0.58);
 
                         // ── Bottom dot gauge column ────────────────────────────
                         const dotsLit  = Math.round(p.map(val, 0, 360, 0, 8));

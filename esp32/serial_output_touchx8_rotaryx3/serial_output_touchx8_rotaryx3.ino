@@ -17,7 +17,7 @@ VCC                    microcontroler VCC (then set ROTARY_ENCODER_VCC_PIN -1)
 VCC                    any microcontroler output pin - but set also ROTARY_ENCODER_VCC_PIN 25
                         in this example pin 25
 
-CALIBRATION (via Serial Monitor at 9600 baud):
+CALIBRATION (via Serial Monitor at 115200 baud):
   Send 'b'   — calibrate baseline (NO TOUCH): hands off all sensors, then send 'b'
   Send 'm'   — calibrate max touch: press all sensors firmly, then send 'm'
   Send 'p'   — print current calibration values to Serial
