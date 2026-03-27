@@ -847,18 +847,41 @@
             }
         }
 
+        const ANIMATED_RESULT_VIZZES = ['sigilResult', 'fortuneTeller'];
+
+        function _applyVizSwitch() {
+            if (!p5Instance || collectedData.length === 0 || isCollecting) return;
+            // Reset animation state so animated vizzes replay cleanly
+            if (p5Instance.sketchInstanceVariables) {
+                p5Instance.sketchInstanceVariables.resetSigil?.();
+                p5Instance.sketchInstanceVariables.resetFortune?.();
+            }
+            if (ANIMATED_RESULT_VIZZES.includes(currentVisualization)) {
+                p5Instance.loop();
+            } else {
+                p5Instance.noLoop();
+                p5Instance.redraw();
+            }
+        }
+
         function cycleNextVisualization() {
-            // Only cycle through enabled results vizzes
             const enabled = vizRegistry.results.filter(v => v.enabled).map(v => v.key);
             if (enabled.length === 0) return;
             const current = enabled.indexOf(currentVisualization);
             currentVisualization = enabled[(current + 1) % enabled.length];
             vizSelect.value = currentVisualization;
             saveSettings();
-            // Redraw immediately if we're in post-collection display state
-            if (p5Instance && collectedData.length > 0 && !isCollecting) {
-                p5Instance.redraw();
-            }
+            _applyVizSwitch();
+        }
+
+        function cyclePrevVisualization() {
+            const enabled = vizRegistry.results.filter(v => v.enabled).map(v => v.key);
+            if (enabled.length === 0) return;
+            const current = enabled.indexOf(currentVisualization);
+            currentVisualization = enabled[(current - 1 + enabled.length) % enabled.length];
+            vizSelect.value = currentVisualization;
+            saveSettings();
+            _applyVizSwitch();
         }
 
         function parseTriggerSensors(str) {
@@ -1081,19 +1104,24 @@
                         : values;
 
                     // --- Button Channel Interception ---
-                    // Handle before anything else; button values never reach viz storage.
-                    // Debounced per channel — ignores repeats within BUTTON_DEBOUNCE_MS.
-                    buttonChannelIndices.forEach(i => {
-                        const btnVal = values[i];
-                        if (btnVal !== 1 && btnVal !== 6) return; // only act on press / longpress
-
+                    // Firmware outputs 360 on press. Debounced per channel.
+                    // btn1 (position 0): next viz in normal mode; back to watching in installation mode
+                    // btn2 (position 1): previous viz
+                    const inResults = collectedData.length > 0 && !isCollecting;
+                    buttonChannelIndices.forEach((channelIdx, position) => {
+                        if ((values[channelIdx] || 0) < 200) return; // not pressed
                         const now = Date.now();
-                        if ((now - (buttonLastFiredAt[i] || 0)) < BUTTON_DEBOUNCE_MS) return;
-                        buttonLastFiredAt[i] = now;
+                        if ((now - (buttonLastFiredAt[channelIdx] || 0)) < BUTTON_DEBOUNCE_MS) return;
+                        buttonLastFiredAt[channelIdx] = now;
 
-                        if (btnVal === 1) cycleNextVisualization(); // pressed → cycle final viz
-                        // 6 = longpress — reserved for future use
-                        // 3 = released — intentionally ignored
+                        if (position === 0) {
+                            // Button 1
+                            if (isInstallationMode && inResults) resetToWatching();
+                            else if (inResults) cycleNextVisualization();
+                        } else {
+                            // Button 2 (and any extras)
+                            if (inResults) cyclePrevVisualization();
+                        }
                     });
                     // -----------------------------------
 

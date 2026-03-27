@@ -49,6 +49,11 @@ After calibration, values are saved to EEPROM and loaded automatically on next b
 #endif
 #define ROTARY_ENCODER_VCC_PIN -1 /* 27 put -1 of Rotary encoder Vcc is connected directly to 3,3V; else you can use declared output pin for powering rotary encoder */
 
+// ── Buttons (active LOW via INPUT_PULLUP) ──────────────────────────────────
+// Change these to match your wiring
+#define BUTTON1_PIN 22
+#define BUTTON2_PIN 23
+
 //depending on your encoder - try 1,2 or 4 to get expected behaviour
 //#define ROTARY_ENCODER_STEPS 1
 //#define ROTARY_ENCODER_STEPS 2
@@ -125,6 +130,16 @@ void IRAM_ATTR readEncoderISR()
 // Firmware defaults (used if no EEPROM calibration found)
 const int DEFAULT_MAX_VALUES[8] = {83, 73, 87, 65, 81, 81, 92, 86}; // resting / no touch
 const int DEFAULT_MIN_VALUES[8] = {15, 15, 15, 15, 15, 15, 15, 15}; // full touch
+
+// Button state
+bool     btn1LastState  = HIGH;
+bool     btn2LastState  = HIGH;
+unsigned long btn1LastMs = 0;
+unsigned long btn2LastMs = 0;
+int      btn1Pulse = 0;   // counts down after a press; >0 → output 360
+int      btn2Pulse = 0;
+const int      BUTTON_DEBOUNCE_MS = 50;
+const int      BUTTON_PULSE_LOOPS = 1;  // single-frame pulse — exactly one 360 output per press
 
 float p1[8] = {0.0}, p2[8] = {0.0}, p3[8] = {0.0};  // 3-Point history for 8 sensors
 float raw[8] = {0.0}; // Current readings for 8 sensors
@@ -286,6 +301,10 @@ void setup()
   rotaryEncoder2.setAcceleration(acceleration);
   rotaryEncoder3.setAcceleration(acceleration);
 
+  // buttons
+  pinMode(BUTTON1_PIN, INPUT_PULLUP);
+  pinMode(BUTTON2_PIN, INPUT_PULLUP);
+
   // touch pins — warm up smoothing history
   for (int i = 0; i < 8; i++) {
     for (int j = 0; j < 100; j++) {
@@ -355,6 +374,26 @@ void loop()
 
   count++;
 
+  // Read buttons — detect falling edge with debounce, then hold pulse high
+  unsigned long now = millis();
+  bool btn1 = digitalRead(BUTTON1_PIN);
+  bool btn2 = digitalRead(BUTTON2_PIN);
+  if (btn1 == LOW && btn1LastState == HIGH && now - btn1LastMs > BUTTON_DEBOUNCE_MS) {
+    btn1LastMs = now;
+    btn1Pulse  = BUTTON_PULSE_LOOPS;
+  }
+  if (btn2 == LOW && btn2LastState == HIGH && now - btn2LastMs > BUTTON_DEBOUNCE_MS) {
+    btn2LastMs = now;
+    btn2Pulse  = BUTTON_PULSE_LOOPS;
+  }
+  btn1LastState = btn1;
+  btn2LastState = btn2;
+  // Capture output value BEFORE decrementing — with PULSE_LOOPS=1 this gives exactly one 360 frame
+  int btn1Val = (btn1Pulse > 0) ? 360 : 0;
+  int btn2Val = (btn2Pulse > 0) ? 360 : 0;
+  if (btn1Pulse > 0) btn1Pulse--;
+  if (btn2Pulse > 0) btn2Pulse--;
+
   // Output mapped values (0–360)
   String output = "";
   for (int i = 0; i < 8; i++) {
@@ -363,7 +402,11 @@ void loop()
   }
 
   Serial.print(output);
-  Serial.print(",0,0,"); // button placeholders
+  Serial.print(",");
+  Serial.print(btn1Val); // button 1 (channel 8)
+  Serial.print(",");
+  Serial.print(btn2Val); // button 2 (channel 9)
+  Serial.print(",");
   Serial.println(String(rotaryEncoder1.readEncoder()) + "," + String(rotaryEncoder2.readEncoder()) + "," + String(rotaryEncoder3.readEncoder()));
 
   delay(5); // ~200Hz output; smooth data smoothing covers any micro-jitter
