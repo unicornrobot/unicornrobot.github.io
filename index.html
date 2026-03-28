@@ -227,6 +227,8 @@
                     <div id="liveVizToggles" style="margin-bottom:8px;"></div>
                     <div style="font-size:10px;color:#555;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.08em;">Results</div>
                     <div id="resultsVizToggles"></div>
+                    <div style="font-size:10px;color:#555;margin-top:8px;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.08em;">Waiting Screen</div>
+                    <div id="waitingScreenRadios"></div>
                 </div>
             </div>
 
@@ -434,6 +436,8 @@
         // --- Installation Mode ---
         let isInstallationMode = false;
         let isWatching = false;         // Waiting for trigger
+        let waitingScreenType = 'sigil'; // 'sigil' | 'vizPicker'
+        let vizPickerSelectedIdx = 0;    // index into enabled results vizzes for picker
         let displayHoldTimerId = null;  // Timer to reset after displaying final viz
         let displayHoldStartTime = null; // When the display hold began (for countdown)
         let DISPLAY_HOLD_MS = 8000;    // How long to show final viz before resetting (ms)
@@ -556,6 +560,25 @@
                     });
                 });
             });
+
+            // Waiting screen type radios (radio = one option at a time)
+            const waitingRadios = document.getElementById('waitingScreenRadios');
+            if (waitingRadios) {
+                waitingRadios.innerHTML = [
+                    { value: 'sigil',     label: 'Sigil' },
+                    { value: 'vizPicker', label: 'Viz Picker' }
+                ].map(o => `
+                    <label style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;">
+                        <input type="radio" name="waitingScreen" value="${o.value}" ${waitingScreenType === o.value ? 'checked' : ''}>
+                        <span style="color:#aaa;font-size:12px;">${o.label}</span>
+                    </label>`).join('');
+                waitingRadios.querySelectorAll('input[type="radio"]').forEach(radio => {
+                    radio.addEventListener('change', e => {
+                        waitingScreenType = e.target.value;
+                        saveSettings();
+                    });
+                });
+            }
         }
         // ---------------------
 
@@ -740,7 +763,9 @@
                 dashboardLayout: dashboardLayout,
                 // Save enabled state only (keys are stable, order may change)
                 vizRegistryLive:    vizRegistry.live.map(v => ({ key: v.key, enabled: v.enabled })),
-                vizRegistryResults: vizRegistry.results.map(v => ({ key: v.key, enabled: v.enabled }))
+                vizRegistryResults: vizRegistry.results.map(v => ({ key: v.key, enabled: v.enabled })),
+                waitingScreenType: waitingScreenType,
+                vizPickerSelectedIdx: vizPickerSelectedIdx
             };
             try {
                 localStorage.setItem('visualizerSettings', JSON.stringify(settings));
@@ -823,6 +848,8 @@
                         if (!dashboardLayout.cols) dashboardLayout.cols = 4;
                         if (!dashboardLayout.rows) dashboardLayout.rows = 3;
                     }
+                    if (settings.waitingScreenType) waitingScreenType = settings.waitingScreenType;
+                    if (settings.vizPickerSelectedIdx !== undefined) vizPickerSelectedIdx = parseInt(settings.vizPickerSelectedIdx, 10) || 0;
                     renderDeviceConfigRows();
                     renderVizToggles();
                     rebuildVizSelects();
@@ -1114,6 +1141,19 @@
                         if ((now - (buttonLastFiredAt[channelIdx] || 0)) < BUTTON_DEBOUNCE_MS) return;
                         buttonLastFiredAt[channelIdx] = now;
 
+                        // Viz picker navigation when waiting in installation mode
+                        if (isInstallationMode && isWatching && waitingScreenType === 'vizPicker') {
+                            const pickerEnabled = vizRegistry.results.filter(v => v.enabled);
+                            if (pickerEnabled.length > 0) {
+                                if (position === 0) { // btn1 = back
+                                    vizPickerSelectedIdx = (vizPickerSelectedIdx - 1 + pickerEnabled.length) % pickerEnabled.length;
+                                } else { // btn2 = fwd
+                                    vizPickerSelectedIdx = (vizPickerSelectedIdx + 1) % pickerEnabled.length;
+                                }
+                            }
+                            return;
+                        }
+
                         if (position === 0) {
                             // Button 1
                             if (isInstallationMode && inResults) resetToWatching();
@@ -1130,6 +1170,15 @@
                         const triggerCount = triggerSensorIndices.filter(i => (values[i] || 0) > TRIGGER_THRESHOLD).length;
                         if (triggerCount >= TRIGGER_MIN_COUNT) {
                             isWatching = false;
+                            if (waitingScreenType === 'vizPicker') {
+                                const pickerEnabled = vizRegistry.results.filter(v => v.enabled);
+                                const picked = pickerEnabled[vizPickerSelectedIdx] || pickerEnabled[0];
+                                if (picked) {
+                                    currentVisualization = picked.key;
+                                    vizSelect.value = currentVisualization;
+                                    saveSettings();
+                                }
+                            }
                             startCollection();
                         }
                     }
@@ -2407,12 +2456,12 @@
                 }, // End sigilResult
 
                 maskResult: (data) => {
-                    // --- Mask Result ---
-                    // Compute per-channel averages (0-360) from collected data
+                    // --- Mask Result (optimised: no grain, no shadowBlur, fixed sep=3, coarser superellipse) ---
                     const nCh = data[0] ? data[0].length : 0;
                     if (nCh < 1) return;
                     const avgs = Array.from({ length: nCh }, (_, j) => {
-                        const sum = data.reduce((s, row) => s + (row[j] || 0), 0);
+                        let sum = 0;
+                        for (let r = 0; r < data.length; r++) sum += (data[r][j] || 0);
                         return sum / data.length;
                     });
                     const norm = avgs.map(v => p.constrain(v / 360, 0, 1));
@@ -2425,20 +2474,11 @@
                     const W = p.width, H = p.height;
                     const cx = W / 2;
 
-                    // Noise grain graphics
-                    const grain = p.createGraphics(W, H);
-                    grain.noStroke();
-                    grain.fill(255, 12);
-                    for (let i = 0; i < W * H * 0.01; i++) {
-                        const gx = p.random(W), gy = p.random(H);
-                        grain.ellipse(gx, gy, p.noise(gx * 0.01, gy * 0.01) * 1.5 + 0.5);
-                    }
-
-                    // Superellipse helper (from masks.js)
+                    // Superellipse — 9° steps (was 3°): same shape, 3× fewer vertices
                     const drawSuperEllipse = (ex, ey, ew, eh, n) => {
                         const na = 2 / Math.max(n, 0.1);
                         p.beginShape();
-                        for (let a = 0; a < 360; a += 3) {
+                        for (let a = 0; a < 360; a += 9) {
                             const ca = p.cos(a), sa = p.sin(a);
                             p.vertex(
                                 ex + Math.pow(Math.abs(ca), na) * ew / 2 * (ca >= 0 ? 1 : -1),
@@ -2460,10 +2500,8 @@
                         }
                     };
 
-                    // 8 mask zones — positioned symmetrically like a ritual face mask
-                    // [fracCentreX, fracCentreY, fracW, fracH, sensorChannel]
                     const zones = [
-                        { fx:0.50, fy:0.26, fw:0.42, fh:0.088, ch:0 }, // brow / crown
+                        { fx:0.50, fy:0.26, fw:0.42,  fh:0.088, ch:0 }, // brow / crown
                         { fx:0.38, fy:0.36, fw:0.152, fh:0.112, ch:1 }, // left eye
                         { fx:0.62, fy:0.36, fw:0.152, fh:0.112, ch:2 }, // right eye
                         { fx:0.31, fy:0.50, fw:0.136, fh:0.168, ch:3 }, // left cheek
@@ -2473,29 +2511,24 @@
                         { fx:0.50, fy:0.73, fw:0.224, fh:0.088, ch:7 % nCh }, // chin
                     ];
 
-                    // Draw a zone using the masks.js layered-shear technique
+                    const SEP = 3; // fixed layers per zone (was up to 6): 8 zones × 2 sides × 3 = 48 draws vs up to 96
                     const drawZone = (zx, zy, zw, zh, ch) => {
-                        const v = norm[Math.min(ch, norm.length - 1)];
-
-                        const hue      = p.map(v, 0, 1, 200, 45);
-                        const sat      = p.map(v, 0, 1, 40, 95);
-                        const bri      = p.map(v, 0, 1, 40, 95);
+                        const v      = norm[Math.min(ch, norm.length - 1)];
+                        const hue    = p.map(v, 0, 1, 200, 45);
+                        const sat    = p.map(v, 0, 1, 40, 95);
+                        const bri    = p.map(v, 0, 1, 40, 95);
                         const shapeNum = Math.floor(p.map(v, 0, 1, 0, 6.99));
-                        const angle    = p.map(v, 0, 1, 90, 270);
-                        const shXamt   = p.map(v, 0, 1, -7, 7);
-                        const shYamt   = p.map(v, 0, 1, -5, 5);
-                        const sep      = Math.max(2, Math.floor(p.map(v, 0, 1, 2, 6)));
-                        const mVal     = p.map(v, 0, 1, 0.4, 3.5);
-                        const swBase   = p.map(v, 0, 1, 0.5, 2.2);
-                        const glowSz   = p.map(v, 0, 1, 8, Math.max(zw, zh) / 2.2);
+                        const angle  = p.map(v, 0, 1, 90, 270);
+                        const shXamt = p.map(v, 0, 1, -7, 7);
+                        const shYamt = p.map(v, 0, 1, -5, 5);
+                        const mVal   = p.map(v, 0, 1, 0.4, 3.5);
+                        const swBase = p.map(v, 0, 1, 0.5, 2.2);
                         const cw = zw * 0.70, ch2 = zh * 0.70;
 
-                        // Left side
+                        // Left side — no shadowBlur
                         p.push();
                         p.translate(zx, zy);
-                        p.drawingContext.shadowBlur = glowSz;
-                        p.drawingContext.shadowColor = p.color(hue, sat, bri, 80);
-                        for (let i = 1.3; i > 0; i -= 1 / sep) {
+                        for (let i = 1.3; i > 0; i -= 1 / SEP) {
                             p.push();
                             p.scale(i);
                             p.strokeWeight(swBase / i);
@@ -2507,16 +2540,13 @@
                             drawShape(0, 0, cw, ch2, shapeNum, mVal);
                             p.pop();
                         }
-                        p.drawingContext.shadowBlur = 0;
                         p.pop();
 
-                        // Right-side mirror (bilateral symmetry via scale(-1,1))
+                        // Right mirror
                         p.push();
                         p.translate(W - zx, zy);
                         p.scale(-1, 1);
-                        p.drawingContext.shadowBlur = glowSz;
-                        p.drawingContext.shadowColor = p.color(hue, sat, bri, 80);
-                        for (let i = 1.3; i > 0; i -= 1 / sep) {
+                        for (let i = 1.3; i > 0; i -= 1 / SEP) {
                             p.push();
                             p.scale(i);
                             p.strokeWeight(swBase / i);
@@ -2528,7 +2558,6 @@
                             drawShape(0, 0, cw, ch2, shapeNum, mVal);
                             p.pop();
                         }
-                        p.drawingContext.shadowBlur = 0;
                         p.pop();
                     };
 
@@ -2545,12 +2574,7 @@
                     p.strokeWeight(0.8);
                     p.ellipse(cx, H * 0.50, W * 0.48, H * 0.58);
 
-                    // Grain overlay
-                    p.blendMode(p.ADD);
-                    p.image(grain, 0, 0);
-                    grain.remove();
-
-                    // Restore p5 defaults for other vizzes
+                    // Restore p5 defaults
                     p.blendMode(p.BLEND);
                     p.colorMode(p.HSB, 360, 100, 100, 1.0);
                     p.angleMode(p.RADIANS);
@@ -2955,11 +2979,240 @@
                  // --- End Fullscreen Toggle ---
             };
 
+            // --- Viz Picker Icon Helper ---
+            // Draws a small iconic preview for each result viz type.
+            function drawVizPickerIcon(key, cx, cy, r, active) {
+                const h = active ? 45 : 210;
+                const s = active ? 75 : 30;
+                const b = active ? 82 : 55;
+                p.strokeWeight(1.2);
+
+                switch (key) {
+                    case 'fortuneTeller': {
+                        for (let i = 0; i < 8; i++) {
+                            const a = (i / 8) * p.TWO_PI - p.HALF_PI;
+                            p.stroke(h, s, b, 0.7); p.noFill();
+                            p.line(cx, cy, cx + p.cos(a) * r, cy + p.sin(a) * r);
+                            p.fill(h, s, b, 0.8); p.noStroke();
+                            p.ellipse(cx + p.cos(a) * r, cy + p.sin(a) * r, 3, 3);
+                        }
+                        p.fill(h, s, b, 0.9); p.noStroke();
+                        p.ellipse(cx, cy, 5, 5);
+                        break;
+                    }
+                    case 'sigilResult': {
+                        p.noFill(); p.stroke(h, s, b, 0.85);
+                        p.beginShape();
+                        for (let i = 0; i < 8; i++) {
+                            const a = (i / 8) * p.TWO_PI - p.HALF_PI;
+                            const rr = i % 2 === 0 ? r : r * 0.4;
+                            p.vertex(cx + p.cos(a) * rr, cy + p.sin(a) * rr);
+                        }
+                        p.endShape(p.CLOSE);
+                        break;
+                    }
+                    case 'concentricArcs': {
+                        p.noFill();
+                        for (let i = 1; i <= 3; i++) {
+                            p.stroke(h, s, b, 0.4 + i * 0.15);
+                            p.arc(cx, cy, r * i * 0.67, r * i * 0.67, -p.HALF_PI, p.PI);
+                        }
+                        break;
+                    }
+                    case 'lines': {
+                        p.noFill();
+                        for (let i = 0; i < 3; i++) {
+                            p.stroke(h, s, b, 0.5 + i * 0.15);
+                            p.beginShape();
+                            for (let x2 = -r; x2 <= r; x2 += r / 5) {
+                                p.vertex(cx + x2, cy + p.sin(x2 * 0.3 + i * 2) * r * 0.38);
+                            }
+                            p.endShape();
+                        }
+                        break;
+                    }
+                    case 'anniAlbers': {
+                        const sz = r * 0.68;
+                        for (let row = 0; row < 3; row++) {
+                            for (let col = 0; col < 3; col++) {
+                                p.fill(((row * 3 + col) * 45) % 360, 65, active ? 75 : 55, 0.85);
+                                p.noStroke();
+                                p.rect(cx - r + col * sz, cy - r + row * sz, sz - 1, sz - 1);
+                            }
+                        }
+                        break;
+                    }
+                    case 'maskResult': {
+                        p.noFill(); p.stroke(h, s, b, 0.8);
+                        p.ellipse(cx - r * 0.3, cy, r * 0.75, r * 1.2);
+                        p.ellipse(cx + r * 0.3, cy, r * 0.75, r * 1.2);
+                        p.stroke(h, s, b, 0.35);
+                        p.line(cx, cy - r * 0.5, cx, cy + r * 0.5);
+                        break;
+                    }
+                    case 'auraDashboard': {
+                        p.noFill(); p.stroke(h, s, b, 0.8);
+                        p.ellipse(cx, cy, r * 1.35, r * 1.35);
+                        p.stroke(h, s, b, 0.3);
+                        p.line(cx - r * 0.7, cy, cx + r * 0.7, cy);
+                        p.line(cx, cy - r * 0.7, cx, cy + r * 0.7);
+                        p.fill(h, s, b, 0.9); p.noStroke();
+                        p.ellipse(cx, cy, 5, 5);
+                        break;
+                    }
+                    case 'dashboard': {
+                        const dhs = [0.5, 0.85, 0.6, 0.75];
+                        for (let i = 0; i < 4; i++) {
+                            p.fill(h, s * 0.8, b * 0.8, 0.65); p.noStroke();
+                            p.rect(cx - r * 0.8 + i * r * 0.53, cy + r * 0.5 - r * dhs[i], r * 0.42, r * dhs[i]);
+                        }
+                        p.noFill(); p.stroke(h, s, b, 0.85); p.strokeWeight(1.2);
+                        p.beginShape();
+                        for (let i = 0; i < 5; i++) {
+                            p.vertex(cx - r + i * r * 0.5, cy - r * 0.2 + p.sin(i * 1.5) * r * 0.3);
+                        }
+                        p.endShape();
+                        break;
+                    }
+                    case 'stackedBars': {
+                        const shs = [0.35, 0.45, 0.55, 0.3];
+                        for (let i = 0; i < 4; i++) {
+                            let yy = cy + r * 0.5;
+                            for (let j = 0; j < 3; j++) {
+                                p.fill((j * 120) % 360, 60, active ? 72 : 52, 0.8); p.noStroke();
+                                const bh = r * shs[(i + j) % 4];
+                                p.rect(cx - r * 0.72 + i * r * 0.5, yy - bh, r * 0.42, bh);
+                                yy -= bh;
+                            }
+                        }
+                        break;
+                    }
+                    case 'histogram': {
+                        const hts = [0.35, 0.7, 1.0, 0.85, 0.5, 0.25];
+                        const bw = r * 1.9 / hts.length;
+                        for (let i = 0; i < hts.length; i++) {
+                            p.fill(h, s, b * (0.45 + hts[i] * 0.55), 0.8); p.noStroke();
+                            p.rect(cx - r * 0.95 + i * bw, cy + r * 0.5 - r * hts[i], bw - 1.5, r * hts[i]);
+                        }
+                        break;
+                    }
+                    case 'heatmap': {
+                        const sz2 = r * 0.52;
+                        for (let row = 0; row < 4; row++) {
+                            for (let col = 0; col < 4; col++) {
+                                const v = ((row * 4 + col) * 37) % 100 / 100;
+                                p.fill(p.map(v, 0, 1, 200, 0), 70, active ? 72 : 52, 0.85); p.noStroke();
+                                p.rect(cx - r + col * sz2, cy - r + row * sz2, sz2 - 1, sz2 - 1);
+                            }
+                        }
+                        break;
+                    }
+                    case 'circularPlot': {
+                        p.noFill(); p.stroke(h, s, b, 0.3);
+                        p.ellipse(cx, cy, r * 2, r * 2);
+                        for (let i = 0; i < 8; i++) {
+                            const a = (i / 8) * p.TWO_PI;
+                            p.fill(h, s, b, 0.85); p.noStroke();
+                            p.ellipse(cx + p.cos(a) * r * 0.85, cy + p.sin(a) * r * 0.85, 4, 4);
+                        }
+                        break;
+                    }
+                    case 'radialBars': {
+                        const lens = [0.5, 0.85, 0.65, 1.0, 0.45, 0.9, 0.7, 0.55];
+                        for (let i = 0; i < 8; i++) {
+                            const a = (i / 8) * p.TWO_PI - p.HALF_PI;
+                            p.stroke(h, s, b, 0.75); p.strokeWeight(2);
+                            p.line(cx + p.cos(a) * r * 0.18, cy + p.sin(a) * r * 0.18,
+                                   cx + p.cos(a) * r * lens[i], cy + p.sin(a) * r * lens[i]);
+                        }
+                        break;
+                    }
+                    default: {
+                        p.noFill(); p.stroke(h, s, b, 0.6);
+                        p.ellipse(cx, cy, r * 1.5, r * 1.5);
+                    }
+                }
+            }
+
             p.draw = () => {
                  particles = p.sketchInstanceVariables.particles; // Ensure local reference is up-to-date
 
                 // --- Installation Mode: Watching/Waiting State ---
                 if ((isWatching || sigilDissolving) && !isCollecting) {
+                    if (isWatching && waitingScreenType === 'vizPicker') {
+                        // --- Viz Picker Screen ---
+                        p.colorMode(p.HSB, 360, 100, 100, 1);
+                        p.background(220, 20, 8);
+                        const enabledVizzes = vizRegistry.results.filter(v => v.enabled);
+                        const n = enabledVizzes.length;
+                        if (n > 0) vizPickerSelectedIdx = p.constrain(Math.floor(vizPickerSelectedIdx), 0, n - 1);
+                        if (n > 0) {
+                            const pickerMargin = p.width * 0.05;
+                            const pickerCols = Math.min(4, n);
+                            const pickerRows = Math.ceil(n / pickerCols);
+                            const pickerGap = 8;
+                            const cardW = (p.width - pickerMargin * 2 - pickerGap * (pickerCols - 1)) / pickerCols;
+                            const cardH = Math.min((p.height * 0.74 - pickerGap * (pickerRows - 1)) / pickerRows, cardW * 0.82);
+                            const gridW = pickerCols * cardW + pickerGap * (pickerCols - 1);
+                            const gridStartX = (p.width - gridW) / 2;
+                            const gridStartY = p.height * 0.15;
+
+                            // Title
+                            p.noStroke();
+                            p.fill(40, 50, 72);
+                            p.textAlign(p.CENTER, p.CENTER);
+                            p.textSize(Math.max(10, p.width * 0.022));
+                            p.textFont('sans-serif');
+                            p.text('SELECT READING', p.width / 2, p.height * 0.072);
+
+                            for (let pi = 0; pi < n; pi++) {
+                                const pcol = pi % pickerCols;
+                                const prow = Math.floor(pi / pickerCols);
+                                const cardX = gridStartX + pcol * (cardW + pickerGap);
+                                const cardY = gridStartY + prow * (cardH + pickerGap);
+                                const pcx = cardX + cardW / 2;
+                                const pcy = cardY + cardH / 2;
+                                const isSel = (pi === vizPickerSelectedIdx);
+
+                                // Card background
+                                p.noStroke();
+                                p.fill(220, isSel ? 35 : 12, isSel ? 22 : 11);
+                                p.rect(cardX, cardY, cardW, cardH, 6);
+
+                                // Selected: pulsing amber border
+                                if (isSel) {
+                                    const pulse = p.sin(p.frameCount * 0.08) * 0.25 + 0.75;
+                                    p.noFill();
+                                    p.stroke(45, 80, 88, pulse);
+                                    p.strokeWeight(1.8);
+                                    p.rect(cardX, cardY, cardW, cardH, 6);
+                                }
+
+                                // Icon in upper portion
+                                const iconR = Math.min(cardW, cardH) * 0.21;
+                                drawVizPickerIcon(enabledVizzes[pi].key, pcx, cardY + cardH * 0.4, iconR, isSel);
+
+                                // Label
+                                p.noStroke();
+                                p.fill(0, 0, isSel ? 88 : 52);
+                                p.textAlign(p.CENTER, p.CENTER);
+                                p.textSize(Math.max(7, p.width * 0.013));
+                                p.textFont('sans-serif');
+                                p.text(enabledVizzes[pi].label, pcx, cardY + cardH * 0.82);
+                            }
+                        }
+                        // Navigation hint
+                        p.noStroke();
+                        p.fill(0, 0, 28);
+                        p.textAlign(p.CENTER, p.CENTER);
+                        p.textSize(Math.max(7, p.width * 0.012));
+                        p.textFont('sans-serif');
+                        p.text('\u25C4 BTN1   BTN2 \u25BA', p.width / 2, p.height * 0.94);
+                    } else if (waitingScreenType === 'vizPicker') {
+                        // dissolving from viz picker — clear to picker bg so dissolve fades cleanly
+                        p.background(220, 20, 8);
+                    } else {
+                    // --- Sigil Waiting Screen ---
                     const cx = p.width / 2;
                     const cy = p.height / 2;
                     const t = p.frameCount;
@@ -3117,6 +3370,8 @@
                     //         p.rect(j * barW, p.height - barH, barW - 1, barH);
                     //     }
                     // }
+
+                    } // end sigil waiting screen
 
                     // --- Dissolve overlay: smooth white fade into collection ---
                     if (sigilDissolving) {

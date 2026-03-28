@@ -7,6 +7,12 @@ btn1 back to waiting scene ready for the next persons reading.
 fortune teller mode
 a new viz result that presents an animated result reveal of a mysterious reading emerging from the ether. generate short text defined by each final average reading from each sensor. define 8 characteristics to use for the fortune. inspired by elemental forces and other similar esoteric attributes. e.g "your earth elemental reading [average of sensor1] is [low/medium/high] so you [are/need to/should etc]...[based on mapping a bank of sentiments to the value]  
 
+installation mode - new alternative waiting screen. allow reading viz choice by button selection through a grid of options as per the data read options set in manage vizzes. show a preview of the viz style. btn1 = back btn2 = fwd . threshold of sensors met to start the reading. Allow choice of waiting screen in manage vizzes via radio style - one option at a time only.
+
+graphic improvements. 
+lighter style - too dark currenttly
+white flashes between some viz readings (mask?)
+improve tapestry viz readings.
 
 
 
