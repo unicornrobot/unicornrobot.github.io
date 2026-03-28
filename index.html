@@ -496,11 +496,8 @@
                 { key: 'maskResult',       label: 'Mask',              enabled: true  },
                 { key: 'sigilResult',      label: 'Sigil Result',      enabled: true  },
                 { key: 'fortuneTeller',    label: 'Fortune Teller',    enabled: true  },
-                { key: 'dashboard',        label: 'Dashboard',         enabled: true  },
                 { key: 'concentricArcs',   label: 'Concentric Arcs',   enabled: true  },
                 { key: 'lines',            label: 'Line Graph',        enabled: true  },
-                { key: 'circularPlot',     label: 'Circular Plot',     enabled: false },
-                { key: 'radialBars',       label: 'Radial Bars',       enabled: false },
                 { key: 'stackedBars',      label: 'Stacked Bars',      enabled: false },
                 { key: 'histogram',        label: 'Histogram',         enabled: false },
                 { key: 'heatmap',          label: 'Heatmap',           enabled: false },
@@ -2225,67 +2222,6 @@
 
                 }, // End concentricArcs
 
-                dashboard: (data) => {
-                    p.background(230, 230, 240); // Light grey background for the dashboard
-                    if (data.length === 0 || data[0].length === 0) {
-                         // ... (no data message) ...
-                         return;
-                    }
-
-                    const margin = 10;
-
-                    // --- Define Grid Boxes ---
-                    // Added names directly here for clarity in logging/debugging
-                    const box1 = { name: 'lines', x: margin, y: margin, w: p.width - 2 * margin, h: p.height * 0.6 - 1.5 * margin };
-                    const box2 = { name: 'stackedBars', x: margin, y: p.height * 0.6 + margin * 0.5, w: p.width * 0.5 - 1.5 * margin, h: p.height * 0.4 - 1.5 * margin };
-                    const box3 = { name: 'concentricArcs', x: p.width * 0.5 + margin * 0.5, y: p.height * 0.6 + margin * 0.5, w: p.width * 0.5 - 1.5 * margin, h: p.height * 0.4 - 1.5 * margin };
-
-                    // Helper function to draw a sub-viz (Revised)
-                    const drawSubViz = (vizFunc, box, data) => {
-                        p.push(); // Isolate transformations and styles
-                        try {
-                            // 1. Apply transformations
-                            p.translate(box.x, box.y);
-                            p.scale(box.w / p.width, box.h / p.height);
-
-                            // 2. REMOVED background clearing here. Draw directly on main background.
-
-                            // 3. REMOVED explicit state resets here. Rely on push/pop + viz function.
-
-                            // 4. Call the actual visualization function
-                            if (vizFunc && typeof vizFunc === 'function') {
-                                 console.log(`Dashboard: Drawing ${box.name}`); // Debug log
-                                 vizFunc(data); // Execute the visualization
-                            } else {
-                                 // ... (unavailable viz message) ...
-                            }
-
-                        } catch (error) {
-                             // ... (error handling) ...
-                             console.error(`Dashboard: Error in visualization '${box.name}':`, error);
-                             // Draw error message within the box (in scaled coordinates)
-                             p.background(255, 200, 200); // Use main background call within scaled context for error
-                             p.fill(150, 0, 0); p.noStroke(); p.textAlign(p.CENTER, p.CENTER);
-                             p.textSize(24); // Note: Text size will be scaled down by p.scale()
-                             p.text(`ERROR\n${box.name}\n${error.name}`, p.width / 2, p.height / 2);
-                        } finally {
-                             p.pop(); // Restore previous drawing state (transformations, styles)
-                        }
-
-                        // 5. Draw bounding box outline *after* pop (in main coordinates)
-                        p.stroke(200); p.strokeWeight(1); p.noFill();
-                        p.rect(box.x, box.y, box.w, box.h);
-                    };
-
-                    // --- Draw the Sub-Visualizations ---
-                    if (visualizations.lines) drawSubViz(visualizations.lines, box1, data);
-                    if (visualizations.stackedBars) drawSubViz(visualizations.stackedBars, box2, data);
-                    if (visualizations.concentricArcs) drawSubViz(visualizations.concentricArcs, box3, data);
-
-                     // Add dashboard title (optional)
-                     // ...
-                }, // End dashboard
-
                 auraDashboard: (data) => {
                     if (data.length === 0 || data[0].length === 0) return;
                     const nCh = data[0].length;
@@ -3060,20 +2996,6 @@
                         p.ellipse(cx, cy, 5, 5);
                         break;
                     }
-                    case 'dashboard': {
-                        const dhs = [0.5, 0.85, 0.6, 0.75];
-                        for (let i = 0; i < 4; i++) {
-                            p.fill(h, s * 0.8, b * 0.8, 0.65); p.noStroke();
-                            p.rect(cx - r * 0.8 + i * r * 0.53, cy + r * 0.5 - r * dhs[i], r * 0.42, r * dhs[i]);
-                        }
-                        p.noFill(); p.stroke(h, s, b, 0.85); p.strokeWeight(1.2);
-                        p.beginShape();
-                        for (let i = 0; i < 5; i++) {
-                            p.vertex(cx - r + i * r * 0.5, cy - r * 0.2 + p.sin(i * 1.5) * r * 0.3);
-                        }
-                        p.endShape();
-                        break;
-                    }
                     case 'stackedBars': {
                         const shs = [0.35, 0.45, 0.55, 0.3];
                         for (let i = 0; i < 4; i++) {
@@ -3104,26 +3026,6 @@
                                 p.fill(p.map(v, 0, 1, 200, 0), 70, active ? 72 : 52, 0.85); p.noStroke();
                                 p.rect(cx - r + col * sz2, cy - r + row * sz2, sz2 - 1, sz2 - 1);
                             }
-                        }
-                        break;
-                    }
-                    case 'circularPlot': {
-                        p.noFill(); p.stroke(h, s, b, 0.3);
-                        p.ellipse(cx, cy, r * 2, r * 2);
-                        for (let i = 0; i < 8; i++) {
-                            const a = (i / 8) * p.TWO_PI;
-                            p.fill(h, s, b, 0.85); p.noStroke();
-                            p.ellipse(cx + p.cos(a) * r * 0.85, cy + p.sin(a) * r * 0.85, 4, 4);
-                        }
-                        break;
-                    }
-                    case 'radialBars': {
-                        const lens = [0.5, 0.85, 0.65, 1.0, 0.45, 0.9, 0.7, 0.55];
-                        for (let i = 0; i < 8; i++) {
-                            const a = (i / 8) * p.TWO_PI - p.HALF_PI;
-                            p.stroke(h, s, b, 0.75); p.strokeWeight(2);
-                            p.line(cx + p.cos(a) * r * 0.18, cy + p.sin(a) * r * 0.18,
-                                   cx + p.cos(a) * r * lens[i], cy + p.sin(a) * r * lens[i]);
                         }
                         break;
                     }

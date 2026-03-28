@@ -1,4 +1,5 @@
 Major features to do.
+
 color scheme engine. allow user to pick from a palette of 8 sets of 8 colors that define the palette used in all vizzes. color palettes must be harmonious but varied (e.g. https://esm.sh/rampensau/)
 
 button behaviour - btn 2 skip results when not in installation mode .
