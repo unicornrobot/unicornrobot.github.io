@@ -739,6 +739,43 @@
         }
         // ------------------------
 
+        function saveLastReading() {
+            try {
+                localStorage.setItem('unicornLastReading', JSON.stringify(collectedData));
+            } catch(e) {
+                console.warn('Could not persist last reading:', e);
+            }
+        }
+
+        function restoreLastReading() {
+            try {
+                const raw = localStorage.getItem('unicornLastReading');
+                if (!raw) return;
+                const data = JSON.parse(raw);
+                if (!Array.isArray(data) || data.length === 0) return;
+                collectedData = data;
+                updateButtonStates();
+                if (!p5Instance) return;
+                if (p5Instance.sketchInstanceVariables) {
+                    p5Instance.sketchInstanceVariables.resetDissolve?.();
+                }
+                if (currentVisualization === 'fortuneTeller') {
+                    p5Instance.sketchInstanceVariables?.skipToFortuneDone?.();
+                    p5Instance.noLoop();
+                    p5Instance.redraw();
+                } else if (currentVisualization === 'sigilResult') {
+                    p5Instance.sketchInstanceVariables?.resetSigil?.();
+                    p5Instance.loop();
+                } else {
+                    p5Instance.noLoop();
+                    p5Instance.redraw();
+                }
+                updateStatus(`Last reading restored (${data.length} points).`, 'finished');
+            } catch(e) {
+                console.warn('Could not restore last reading:', e);
+            }
+        }
+
         function saveSettings() {
             const settings = {
                 collectDuration: collectDurationInput.value,
@@ -1433,14 +1470,15 @@
                     setTimeout(saveCurrentResult, 4500);
                 } else if (currentVisualization === 'fortuneTeller') {
                     p5Instance.loop();
-                    // Save after animation completes (~7.5s at 60fps)
-                    setTimeout(saveCurrentResult, 8000);
+                    // Screenshot triggered automatically when animation completes (fortuneSaveTriggered)
                 } else {
                     p5Instance.noLoop();
                     p5Instance.redraw();
                     setTimeout(saveCurrentResult, 120);
                 }
             }
+
+            saveLastReading();
 
             // In installation mode, schedule automatic reset back to watching
             if (isInstallationMode && autoSceneChange) {
@@ -1506,6 +1544,7 @@
             // --- Fortune Teller state ---
             let fortuneFrame = 0;    // increments each draw call during animation
             let fortuneDone  = false;
+            let fortuneSaveTriggered = false;
 
             p.sketchInstanceVariables = {
                  particles: [],
@@ -1518,7 +1557,8 @@
                      sigilCursorX = 0; sigilCursorY = 0; sigilCursorAngle = 0;
                      sigilRevealIndex = 0; sigilRevealDone = false; sigilNorm = null;
                  },
-                 resetFortune: () => { fortuneFrame = 0; fortuneDone = false; }
+                 resetFortune: () => { fortuneFrame = 0; fortuneDone = false; fortuneSaveTriggered = false; },
+                 skipToFortuneDone: () => { fortuneFrame = 450; fortuneDone = true; fortuneSaveTriggered = true; }
             };
             let particles = p.sketchInstanceVariables.particles; // Local reference
 
@@ -2636,7 +2676,7 @@
 
                 fortuneTeller: (data) => {
                     // ─── Fortune Teller — elemental reading reveal ───────────────
-                    // Layout: octagram LEFT | fortune list RIGHT | dot gauges BOTTOM
+                    // Layout: octagram centred, text + name arranged radially around it
                     if (!fortuneDone) fortuneFrame++;
                     const f = fortuneFrame;
 
@@ -2677,7 +2717,6 @@
                          "the vast quiet within is your greatest gift"],
                     ];
 
-                    // Per-channel averages (first 8 channels)
                     const nCh = data.length > 0 ? data[0].length : 0;
                     const avgs = [];
                     for (let c = 0; c < 8; c++) {
@@ -2693,72 +2732,84 @@
                         return t * t;
                     };
 
-                    // ── Background ──────────────────────────────────────────────
                     p.background(28, 30, 7);
 
-                    // ── Layout ──────────────────────────────────────────────────
-                    const titleY       = H * 0.065;
-                    const contentTop   = H * 0.13;
-                    const stripTop     = H * 0.82;
-                    const contentH     = stripTop - contentTop;      // main area height
+                    // ── Layout ───────────────────────────────────────────────────
+                    const titleY    = H * 0.065;
+                    const pad       = Math.max(8, W * 0.025);
+                    const octCX     = W / 2;
+                    const octCY     = H * 0.54;
+                    const octR      = Math.min(W, H) * 0.200;
+                    const labelR    = octR * 1.28;
+                    const nameSize  = Math.max(9,  W * 0.017);
+                    const textSz    = Math.max(8,  W * 0.014);
+                    const nameLineH = nameSize * 1.4;
 
-                    // Left panel — octagram
-                    const leftW   = W * 0.54;
-                    const octCX   = leftW * 0.50;
-                    const octCY   = contentTop + contentH * 0.50;
-                    const octR    = Math.min(leftW, contentH) * 0.38;
-                    const labelR  = octR * 1.20;
-
-                    // Right panel — fortune rows
-                    const rightX  = W * 0.56;
-                    const rightW  = W * 0.41;
-                    const rowH    = contentH / 8;
-
-                    // Bottom strip — dot gauges
-                    const stripH  = H - stripTop - H * 0.015;
-                    const colW    = W / 8;
-                    const dotsY   = stripTop + stripH * 0.35;
-                    const labelY  = stripTop + stripH * 0.78;
-                    const dotGrpW = colW * 0.72;
-                    const dotSp   = dotGrpW / 7;
-
-                    // ── Phase 0 (0–45): border ───────────────────────────────────
+                    // ── Phase 0 (0–45): border ──────────────────────────────────
                     const bdrA = fadeIn(0, 45);
                     if (bdrA > 0) {
-                        const pad = Math.max(8, W * 0.013);
-                        const cs  = Math.max(9, W * 0.018);
-                        p.noFill();
-                        p.stroke(38, 40, 50, bdrA * 0.5);
-                        p.strokeWeight(0.8);
-                        p.rect(pad, pad, W - pad * 2, H - pad * 2);
-                        [[pad,pad,1,1],[W-pad,pad,-1,1],[pad,H-pad,1,-1],[W-pad,H-pad,-1,-1]].forEach(([x,y,sx,sy]) => {
+                        const bp = Math.max(8, W * 0.013);
+                        const cs = Math.max(9, W * 0.018);
+                        p.noFill(); p.stroke(38, 40, 50, bdrA * 0.5); p.strokeWeight(0.8);
+                        p.rect(bp, bp, W - bp * 2, H - bp * 2);
+                        [[bp,bp,1,1],[W-bp,bp,-1,1],[bp,H-bp,1,-1],[W-bp,H-bp,-1,-1]].forEach(([x,y,sx,sy]) => {
                             p.stroke(38, 40, 62, bdrA * 0.7);
                             p.line(x, y, x + sx * cs, y);
                             p.line(x, y, x, y + sy * cs);
                         });
                     }
 
-                    // ── Phase 1 (45–90): title ───────────────────────────────────
+                    // ── Phase 1 (45–90): title ──────────────────────────────────
                     const titleA = fadeIn(45, 45);
                     if (titleA > 0) {
-                        p.noStroke();
-                        p.textAlign(p.CENTER, p.CENTER);
-                        p.textSize(Math.max(10, W * 0.021));
-                        p.textFont('Georgia, serif');
+                        p.noStroke(); p.textAlign(p.CENTER, p.CENTER);
+                        p.textSize(Math.max(10, W * 0.021)); p.textFont('Georgia, serif');
                         p.fill(38, 50, 68, titleA * 0.2);
                         p.text('\u2736   YOUR READING   \u2736', W * 0.5, titleY + 1.5);
                         p.fill(38, 35, 90, titleA * 0.88);
                         p.text('\u2736   YOUR READING   \u2736', W * 0.5, titleY);
                     }
 
-                    // ── Phase 2 (90–210): octagram builds (left panel) ───────────
+                    // ── Phase 2 (90–210): octagram builds ──────────────────────
                     if (f > 90) {
                         const octProg = p.constrain((f - 90) / 120, 0, 1);
                         const visArms = octProg * 8;
 
-                        // Guide rings
-                        p.noFill();
-                        p.strokeWeight(0.5);
+                        // ── Background dot display ───────────────────────────────
+                        // ↓↓↓  ADJUST THESE  ↓↓↓
+                        const DOTS_PER_ARM  = Math.max(1, data.length); // one dot per collected sample
+                        const DOT_R_MAX     = octR * 0.2;  // radius at full sensor value -default 0.07
+                        const DOT_R_MIN     = octR * 0.01;  // radius at zero sensor value
+                        const DOT_ALPHA_MAX = 0.55;         // opacity at full sensor value
+                        const DOT_ALPHA_MIN = 0.06;         // opacity at zero sensor value
+                        // ↑↑↑  ADJUST THESE  ↑↑↑
+
+                        p.noStroke();
+                        for (let i = 0; i < 8; i++) {
+                            const armProg = p.constrain(visArms - i, 0, 1);
+                            if (armProg === 0) continue;
+                            const angle = -p.HALF_PI + (i / 8) * p.TWO_PI;
+                            const val01 = avgs[i] / 360;
+                            const el    = ELEMENTS[i];
+                            for (let d = 0; d < DOTS_PER_ARM; d++) {
+                                const t        = (d + 1) / DOTS_PER_ARM; // 1/N … 1.0 along spoke
+                                const dotFade  = p.constrain(armProg * DOTS_PER_ARM - d, 0, 1);
+                                if (dotFade === 0) continue;
+                                const dist = t * octR;
+                                const dx   = octCX + Math.cos(angle) * dist;
+                                const dy   = octCY + Math.sin(angle) * dist;
+                                const r    = p.lerp(DOT_R_MIN, DOT_R_MAX, val01) * dotFade;
+                                const a    = p.lerp(DOT_ALPHA_MIN, DOT_ALPHA_MAX, val01) * dotFade;
+                                // Soft glow halo
+                                p.fill(el.hue, el.sat - 20, 95, a * 0.22);
+                                p.ellipse(dx, dy, r * 3.8, r * 3.8);
+                                // Core dot
+                                p.fill(el.hue, el.sat, 88, a);
+                                p.ellipse(dx, dy, r * 2, r * 2);
+                            }
+                        }
+
+                        p.noFill(); p.strokeWeight(0.5);
                         [0.33, 0.66, 1.0].forEach(r => {
                             p.stroke(38, 15, 32, 0.28 * octProg);
                             p.ellipse(octCX, octCY, octR * r * 2, octR * r * 2);
@@ -2774,33 +2825,16 @@
                             const tipX   = octCX + Math.cos(angle) * armLen;
                             const tipY   = octCY + Math.sin(angle) * armLen;
 
-                            // Glow halo
-                            p.stroke(el.hue, el.sat, 75, 0.16 * armProg);
-                            p.strokeWeight(5);
+                            p.stroke(el.hue, el.sat, 75, 0.16 * armProg); p.strokeWeight(5);
                             p.line(octCX, octCY, tipX, tipY);
-                            // Core line
-                            p.stroke(el.hue, el.sat - 10, 90, 0.55 * armProg);
-                            p.strokeWeight(1.2);
+                            p.stroke(el.hue, el.sat - 10, 90, 0.55 * armProg); p.strokeWeight(1.2);
                             p.line(octCX, octCY, tipX, tipY);
-                            // Tip dot
                             p.noStroke();
                             const dr = (2.5 + val01 * 3.5) * armProg;
                             p.fill(el.hue, el.sat - 15, 96, 0.85 * armProg);
                             p.ellipse(tipX, tipY, dr * 2, dr * 2);
-
-                            // Full element name at labelR
-                            if (armProg > 0.3) {
-                                const lx = octCX + Math.cos(angle) * labelR;
-                                const ly = octCY + Math.sin(angle) * labelR;
-                                p.fill(el.hue, el.sat - 25, 78, armProg * 0.82);
-                                p.textAlign(p.CENTER, p.CENTER);
-                                p.textSize(Math.max(6, W * 0.012));
-                                p.textFont('sans-serif');
-                                p.text(el.name, lx, ly);
-                            }
                         }
 
-                        // Centre glow
                         const cp = Math.min(octProg * 2.5, 1);
                         p.noStroke();
                         p.fill(40, 15, 100, cp * (0.45 + 0.28 * Math.sin(f * 0.07)));
@@ -2809,62 +2843,94 @@
                         p.ellipse(octCX, octCY, 3.5, 3.5);
                     }
 
-                    // ── Vertical divider + bottom strip line (with first row) ────
-                    if (f > 210) {
-                        const divA = fadeIn(210, 25);
-                        p.stroke(38, 20, 40, divA * 0.4);
-                        p.strokeWeight(0.6);
-                        // Vertical divider between panels
-                        p.line(W * 0.54, contentTop, W * 0.54, stripTop - H * 0.01);
-                        // Horizontal line above bottom strip
-                        p.line(W * 0.04, stripTop - H * 0.01, W * 0.96, stripTop - H * 0.01);
-                    }
-
-                    // ── Phase 3 (210–450): fortune rows (right) + dot gauges (bottom)
+                    // ── Phase 3 (210–450): text reveals around octagram ─────────
+                    // Arms: 0=top, 1=top-right, 2=right, 3=btm-right,
+                    //        4=btm, 5=btm-left, 6=left, 7=top-left
                     for (let i = 0; i < 8; i++) {
                         const rowA = fadeIn(210 + i * 30, 22);
                         if (rowA === 0) continue;
-                        const el   = ELEMENTS[i];
-                        const val  = avgs[i];
-                        const band = val < 120 ? 0 : val < 240 ? 1 : 2;
+                        const el    = ELEMENTS[i];
+                        const val   = avgs[i];
+                        const band  = val < 120 ? 0 : val < 240 ? 1 : 2;
+                        const angle = -p.HALF_PI + (i / 8) * p.TWO_PI;
+                        const cosA  = Math.cos(angle);
+                        const sinA  = Math.sin(angle);
+                        const lx    = octCX + cosA * labelR;
+                        const ly    = octCY + sinA * labelR;
 
-                        // ── Right panel row ────────────────────────────────────
-                        const ry = contentTop + i * rowH + rowH * 0.5;
-                        // Element name heading
-                        p.noStroke();
-                        p.textAlign(p.LEFT, p.TOP);
-                        p.textSize(Math.max(8, W * 0.016));
-                        p.textFont('sans-serif');
-                        p.fill(el.hue, el.sat - 5, 85, rowA * 0.9);
-                        p.text(el.name, rightX, ry - rowH * 0.46);
-                        // Fortune text
-                        p.textAlign(p.LEFT, p.TOP);
-                        p.textSize(Math.max(7, W * 0.015));
-                        p.fill(38, 8, 70, rowA * 0.70);
-                        p.text(FORTUNES[i][band], rightX, ry - rowH * 0.46 + Math.max(10, W * 0.021), rightW, rowH * 0.58);
+                        const rightSide = cosA >  0.1;
+                        const leftSide  = cosA < -0.1;
+                        const upperHalf = sinA < -0.1;
+                        const lowerHalf = sinA >  0.1;
 
-                        // ── Bottom dot gauge column ────────────────────────────
-                        const dotsLit  = Math.round(p.map(val, 0, 360, 0, 8));
-                        const colCX    = colW * i + colW * 0.5;
-                        const grpStart = colCX - dotGrpW * 0.5;
-                        for (let d = 0; d < 8; d++) {
-                            const lit = d < dotsLit;
-                            const dx  = grpStart + d * dotSp;
-                            p.noStroke();
-                            p.fill(el.hue, lit ? el.sat : 8, lit ? 82 : 20, rowA * (lit ? 0.9 : 0.32));
-                            p.ellipse(dx, dotsY, lit ? 5 : 3.5, lit ? 5 : 3.5);
+                        // Horizontal text box
+                        let txLeft, txWidth;
+                        if (rightSide) {
+                            txLeft  = lx + 7;
+                            txWidth = Math.max(50, W - txLeft - pad);
+                        } else if (leftSide) {
+                            txWidth = Math.max(50, lx - pad - 7);
+                            txLeft  = lx - 7 - txWidth;
+                        } else {
+                            // i=0 (top) or i=4 (bottom): centred block
+                            txWidth = Math.min(W * 0.50, octR * 3.4);
+                            txLeft  = W / 2 - txWidth / 2;
                         }
-                        // Abbreviated label below dots
-                        p.noStroke();
-                        p.fill(el.hue, el.sat - 28, 68, rowA * 0.65);
-                        p.textAlign(p.CENTER, p.CENTER);
-                        p.textSize(Math.max(6, W * 0.011));
-                        p.textFont('sans-serif');
-                        p.text(el.name.substring(0, 3), colCX, labelY);
+
+                        p.noStroke(); p.textFont('sans-serif');
+
+                        if (upperHalf) {
+                            // Text block above the arm tip. Name first (top), fortune below.
+                            // WATER (i=1) and VOID (i=7) are nudged down to clear EARTH's text block.
+                            const diagonalNudge = (i === 1 || i === 7) ? nameLineH * 2.5 : 0;
+                            const nameTop  = Math.max(H * 0.115, ly - 2 - nameLineH - textSz * 3.5 - 4) + diagonalNudge;
+                            const fortTop  = nameTop + nameLineH + 4;
+                            const centreCol = !rightSide && !leftSide;
+                            p.textSize(nameSize);
+                            p.fill(el.hue, el.sat - 5, 88, rowA * 0.92);
+                            p.textAlign(centreCol ? p.CENTER : p.LEFT, p.TOP);
+                            p.text(el.name, centreCol ? W / 2 : txLeft, nameTop);
+                            p.textSize(textSz);
+                            p.fill(el.hue, el.sat - 8, 72, rowA * 0.68);
+                            p.textAlign(p.LEFT, p.TOP);
+                            p.text(FORTUNES[i][band], txLeft, fortTop, txWidth);
+                        } else if (lowerHalf) {
+                            // Text grows downward from ly.
+                            // Name first (closer to arm), fortune below.
+                            const nameTop  = ly + 2;
+                            const fortTop  = nameTop + nameLineH + 4;
+                            const centreCol = !rightSide && !leftSide;
+                            p.textSize(nameSize);
+                            p.fill(el.hue, el.sat - 5, 88, rowA * 0.92);
+                            p.textAlign(centreCol ? p.CENTER : p.LEFT, p.TOP);
+                            p.text(el.name, centreCol ? W / 2 : txLeft, nameTop);
+                            p.textSize(textSz);
+                            p.fill(el.hue, el.sat - 8, 72, rowA * 0.68);
+                            p.textAlign(p.LEFT, p.TOP);
+                            p.text(FORTUNES[i][band], txLeft, fortTop, txWidth);
+                        } else {
+                            // Pure horizontal arms (i=2 right, i=6 left).
+                            // Name centred vertically at ly, fortune below.
+                            const nameTop = ly - nameLineH * 0.5;
+                            const fortTop = ly + nameLineH * 0.6 + 2;
+                            p.textAlign(p.LEFT, p.TOP);
+                            p.textSize(nameSize);
+                            p.fill(el.hue, el.sat - 5, 88, rowA * 0.92);
+                            p.text(el.name, txLeft, nameTop);
+                            p.textSize(textSz);
+                            p.fill(el.hue, el.sat - 8, 72, rowA * 0.68);
+                            p.text(FORTUNES[i][band], txLeft, fortTop, txWidth);
+                        }
                     }
 
                     // ── Phase 4 (450+): done ─────────────────────────────────────
-                    if (f >= 450 && !fortuneDone) fortuneDone = true;
+                    if (f >= 450 && !fortuneDone) {
+                        fortuneDone = true;
+                        if (!fortuneSaveTriggered) {
+                            fortuneSaveTriggered = true;
+                            setTimeout(saveCurrentResult, 500);
+                        }
+                    }
                     if (!fortuneDone) p.loop(); else p.noLoop();
                 }, // End fortuneTeller
 
@@ -4166,6 +4232,7 @@
                  console.log("Initializing p5 in default state (no connection).");
                  p5Instance = new p5(sketch);
              }
+             restoreLastReading();
              updateButtonStates();
              updateGallerySaveCount();
 

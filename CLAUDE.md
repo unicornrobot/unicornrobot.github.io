@@ -1,6 +1,6 @@
 # Unicorn Robot — Project Overview
 
-An interactive data visualization and collection installation built around an ESP32 with 8 capacitive touch sensors and 3 rotary encoders. The system captures sensor input in real-time and renders it using p5.js, producing both live (during collection) and post-collection result visualizations. The conceptual framing treats sensor data as an energetic or aura-like representation — visitors interact through touch and gesture.
+An interactive data visualization and collection installation built around an ESP32 with 8 capacitive touch sensors and 3 rotary encoders, and two buttons. The system captures sensor input in real-time and renders it using p5.js, producing both live (during collection) and post-collection result visualizations. The conceptual framing treats sensor data as an energetic or aura-like representation — visitors interact through touch and gesture.
 
 ---
 
@@ -21,10 +21,10 @@ An interactive data visualization and collection installation built around an ES
 ### ESP32 Inputs
 - **8 capacitive touch sensors** → channels 0–7 (pins T9, T0, T8, T3, T7, T4, T6, T5)
 - **3 rotary encoders** → channels 10–12 (each 0–360, with button inputs)
-- **2 button placeholder channels** → channels 8–9 (currently always 0)
+- **2 button placeholder channels** → channels 8–9 (0-360 - on/off)
 
 ### Serial Protocol
-- Baud rate: **9600**
+- Baud rate: **115200**
 - Format: `val0,val1,...,val7,0,0,rot1,rot2,rot3\n`
 - All values mapped to **0–360** range
 - Output interval: **100ms**

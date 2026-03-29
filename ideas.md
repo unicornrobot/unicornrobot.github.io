@@ -15,6 +15,10 @@ lighter style - too dark currenttly
 white flashes between some viz readings (mask?)
 improve tapestry viz readings.
 
+vanilla crt shader model
+
+
+
 
 
 Concept Options - 
