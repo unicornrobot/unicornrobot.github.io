@@ -474,8 +474,9 @@
             'mask':        'Mask',
             'anniAlbers':  'Anni Albers',
             'sigilResult':    'Sigil Result',
-            'fortuneTeller':  'Fortune Teller',
-            'empty':          'Empty',
+            'fortuneTeller':   'Fortune Teller',
+            'fortuneOctagram': 'Fortune Octagram',
+            'empty':           'Empty',
         };
 
         // --- Viz Registry ---
@@ -497,6 +498,7 @@
                 { key: 'maskResult',       label: 'Mask',              enabled: true  },
                 { key: 'sigilResult',      label: 'Sigil Result',      enabled: true  },
                 { key: 'fortuneTeller',    label: 'Fortune Teller',    enabled: true  },
+                { key: 'fortuneOctagram', label: 'Fortune Octagram',  enabled: true  },
                 { key: 'concentricArcs',   label: 'Concentric Arcs',   enabled: true  },
                 { key: 'lines',            label: 'Line Graph',        enabled: true  },
                 { key: 'stackedBars',      label: 'Stacked Bars',      enabled: false },
@@ -1559,7 +1561,7 @@
                      sigilRevealIndex = 0; sigilRevealDone = false; sigilNorm = null;
                  },
                  resetFortune: () => { fortuneFrame = 0; fortuneDone = false; fortuneSaveTriggered = false; },
-                 skipToFortuneDone: () => { fortuneFrame = 450; fortuneDone = true; fortuneSaveTriggered = true; }
+                 skipToFortuneDone: () => { fortuneFrame = 110; fortuneDone = true; fortuneSaveTriggered = true; }
             };
             let particles = p.sketchInstanceVariables.particles; // Local reference
 
@@ -1907,52 +1909,98 @@
                      "space within holds possibility — do not fill it yet",
                      "the vast quiet within is your greatest gift"],
                 ];
-
-                // Use first 8 channels; fall back to 0
                 const a8 = Array.from({length: 8}, (_, c) => c < nCh ? avgs[c] : 0);
 
-                const pad       = Math.max(4,  bw * 0.025);
-                const octCX     = bx + bw / 2;
-                const octCY     = by + bh * 0.54;
-                const octR      = Math.min(bw, bh) * 0.200;
-                const labelR    = octR * 1.28;
-                const nameSize  = Math.max(6,  bw * 0.017);
-                const textSz    = Math.max(5,  bw * 0.014);
-                const nameLineH = nameSize * 1.4;
+                // 2-col × 4-row grid matching the main viz layout
+                const COLS      = 2, ROWS = 4;
+                const gap       = Math.max(4, bw * 0.016);
+                const cellW     = (bw - gap * (COLS + 1)) / COLS;
+                const cellH     = (bh - gap * (ROWS + 1)) / ROWS;
+                const pad       = Math.max(4, cellW * 0.04);
+                const accentW   = Math.max(2, cellW * 0.005);
+                const nameSize  = Math.max(6,  cellH * 0.20);
+                const textSz    = Math.max(5,  cellH * 0.25);
+                const barH      = Math.max(1,  cellH * 0.025);
+                const nameLineH = nameSize * 1.3;
 
-                // ── Background dots ──────────────────────────────────────────
-                const DOTS_PER_ARM  = Math.max(1, data.length);
-                const DOT_R_MAX     = octR * 0.07;
-                const DOT_R_MIN     = octR * 0.01;
-                const DOT_ALPHA_MAX = 0.55;
-                const DOT_ALPHA_MIN = 0.06;
+                for (let i = 0; i < 8; i++) {
+                    const col = i % COLS;
+                    const row = Math.floor(i / COLS);
+                    const cx  = bx + gap + col * (cellW + gap);
+                    const cy  = by + gap + row * (cellH + gap);
+                    const el    = ELEMENTS[i];
+                    const val   = a8[i];
+                    const val01 = val / 360;
+                    const band  = val < 120 ? 0 : val < 240 ? 1 : 2;
+
+                    p.noStroke();
+                    p.fill(el.hue, el.sat * 0.25, 11, 0.9);
+                    p.rect(cx, cy, cellW, cellH, 2);
+                    p.fill(el.hue, el.sat, 65, 0.75);
+                    p.rect(cx, cy, accentW, cellH, 1, 0, 0, 1);
+
+                    const nameX = cx + pad;
+                    const nameY = cy + pad;
+                    p.textFont('Georgia, serif');
+                    p.textSize(nameSize);
+                    p.fill(el.hue, el.sat - 5, 88, 0.92);
+                    p.textAlign(p.LEFT, p.TOP);
+                    p.text(el.name, nameX, nameY);
+
+                    const barY    = nameY + nameLineH + 3;
+                    const barMaxW = cellW - pad * 2;
+                    p.fill(el.hue, el.sat * 0.3, 22, 0.55);
+                    p.rect(nameX, barY, barMaxW, barH, 1);
+                    p.fill(el.hue, el.sat, 80, 0.75);
+                    p.rect(nameX, barY, barMaxW * val01, barH, 1);
+
+                    p.textFont('sans-serif');
+                    p.textSize(textSz);
+                    p.fill(el.hue, el.sat - 10, 70, 0.7);
+                    p.textAlign(p.LEFT, p.TOP);
+                    p.text(FORTUNES[i][band], nameX, barY + barH + 5, cellW - pad * 2);
+                }
+            };
+
+            const _dp_fortuneOctagram = (data, avgs, nCh, bx, by, bw, bh) => {
+                const ELEMENTS = [
+                    { name: 'EARTH',    hue:  32, sat: 55 },
+                    { name: 'WATER',    hue: 210, sat: 70 },
+                    { name: 'FIRE',     hue:  15, sat: 85 },
+                    { name: 'AIR',      hue:  55, sat: 35 },
+                    { name: 'AETHER',   hue: 270, sat: 60 },
+                    { name: 'SHADOW',   hue: 245, sat: 45 },
+                    { name: 'RADIANCE', hue:  45, sat: 80 },
+                    { name: 'VOID',     hue: 190, sat: 28 },
+                ];
+                const a8     = Array.from({length: 8}, (_, c) => c < nCh ? avgs[c] : 0);
+                const octCX  = bx + bw / 2;
+                const octCY  = by + bh / 2;
+                const octR   = Math.min(bw, bh) * 0.32;
+                const labelR = octR * 1.20;
+                const nameSz = Math.max(5, Math.min(bw, bh) * 0.026);
+
+                // Background dots
+                const DOTS = Math.max(1, data.length);
                 p.noStroke();
                 for (let i = 0; i < 8; i++) {
                     const angle = -p.HALF_PI + (i / 8) * p.TWO_PI;
                     const val01 = a8[i] / 360;
                     const el    = ELEMENTS[i];
-                    for (let d = 0; d < DOTS_PER_ARM; d++) {
-                        const t    = (d + 1) / DOTS_PER_ARM;
-                        const dist = t * octR;
-                        const dx   = octCX + Math.cos(angle) * dist;
-                        const dy   = octCY + Math.sin(angle) * dist;
-                        const r    = p.lerp(DOT_R_MIN, DOT_R_MAX, val01);
-                        const a    = p.lerp(DOT_ALPHA_MIN, DOT_ALPHA_MAX, val01);
-                        p.fill(el.hue, el.sat - 20, 95, a * 0.22);
-                        p.ellipse(dx, dy, r * 3.8, r * 3.8);
-                        p.fill(el.hue, el.sat, 88, a);
-                        p.ellipse(dx, dy, r * 2, r * 2);
+                    for (let d = 0; d < DOTS; d++) {
+                        const t = (d + 1) / DOTS;
+                        const dx = octCX + Math.cos(angle) * t * octR;
+                        const dy = octCY + Math.sin(angle) * t * octR;
+                        const r  = p.lerp(octR * 0.01, octR * 0.07, val01);
+                        const a  = p.lerp(0.06, 0.55, val01);
+                        p.fill(el.hue, el.sat - 20, 95, a * 0.22); p.ellipse(dx, dy, r * 3.8, r * 3.8);
+                        p.fill(el.hue, el.sat, 88, a);              p.ellipse(dx, dy, r * 2,   r * 2);
                     }
                 }
-
-                // ── Concentric rings ─────────────────────────────────────────
+                // Concentric rings
                 p.noFill(); p.strokeWeight(0.5);
-                [0.33, 0.66, 1.0].forEach(r => {
-                    p.stroke(38, 15, 32, 0.28);
-                    p.ellipse(octCX, octCY, octR * r * 2, octR * r * 2);
-                });
-
-                // ── Arms ─────────────────────────────────────────────────────
+                [0.33, 0.66, 1.0].forEach(r => { p.stroke(38, 15, 35, 0.35); p.ellipse(octCX, octCY, octR*r*2, octR*r*2); });
+                // Arms
                 for (let i = 0; i < 8; i++) {
                     const angle  = -p.HALF_PI + (i / 8) * p.TWO_PI;
                     const val01  = a8[i] / 360;
@@ -1960,79 +2008,26 @@
                     const armLen = octR * (0.18 + val01 * 0.82);
                     const tipX   = octCX + Math.cos(angle) * armLen;
                     const tipY   = octCY + Math.sin(angle) * armLen;
-                    p.stroke(el.hue, el.sat, 75, 0.16);     p.strokeWeight(5);   p.line(octCX, octCY, tipX, tipY);
-                    p.stroke(el.hue, el.sat-10, 90, 0.55);  p.strokeWeight(1.2); p.line(octCX, octCY, tipX, tipY);
-                    p.noStroke();
-                    const dr = 2.5 + val01 * 3.5;
-                    p.fill(el.hue, el.sat - 15, 96, 0.85);
-                    p.ellipse(tipX, tipY, dr * 2, dr * 2);
+                    p.stroke(el.hue, el.sat, 75, 0.16);    p.strokeWeight(5);   p.line(octCX, octCY, tipX, tipY);
+                    p.stroke(el.hue, el.sat-10, 90, 0.55); p.strokeWeight(1.2); p.line(octCX, octCY, tipX, tipY);
+                    p.noStroke(); const dr = 2.5 + val01 * 3.5;
+                    p.fill(el.hue, el.sat-15, 96, 0.85); p.ellipse(tipX, tipY, dr*2, dr*2);
                 }
-
-                // ── Centre dot ───────────────────────────────────────────────
+                // Centre dot
                 p.noStroke();
-                p.fill(40, 15, 100, 0.45); p.ellipse(octCX, octCY, 8, 8);
-                p.fill(40, 5,  100, 0.60); p.ellipse(octCX, octCY, 3.5, 3.5);
-
-                // ── Text labels ──────────────────────────────────────────────
+                p.fill(40, 15, 100, 0.5);  p.ellipse(octCX, octCY, 8, 8);
+                p.fill(40, 5,  100, 0.65); p.ellipse(octCX, octCY, 3.5, 3.5);
+                // Name labels
+                p.textFont('sans-serif'); p.textSize(nameSz);
                 for (let i = 0; i < 8; i++) {
-                    const el    = ELEMENTS[i];
-                    const val   = a8[i];
-                    const band  = val < 120 ? 0 : val < 240 ? 1 : 2;
                     const angle = -p.HALF_PI + (i / 8) * p.TWO_PI;
-                    const cosA  = Math.cos(angle);
-                    const sinA  = Math.sin(angle);
-                    const lx    = octCX + cosA * labelR;
-                    const ly    = octCY + sinA * labelR;
-
-                    const rightSide = cosA >  0.1;
-                    const leftSide  = cosA < -0.1;
-                    const upperHalf = sinA < -0.1;
-                    const lowerHalf = sinA >  0.1;
-
-                    let txLeft, txWidth;
-                    if (rightSide) {
-                        txLeft  = lx + 7;
-                        txWidth = Math.max(30, bx + bw - txLeft - pad);
-                    } else if (leftSide) {
-                        txWidth = Math.max(30, lx - bx - pad - 7);
-                        txLeft  = lx - 7 - txWidth;
-                    } else {
-                        txWidth = Math.min(bw * 0.50, octR * 3.4);
-                        txLeft  = bx + bw / 2 - txWidth / 2;
-                    }
-
-                    p.noStroke(); p.textFont('sans-serif');
-
-                    if (upperHalf) {
-                        const diagonalNudge = (i === 1 || i === 7) ? nameLineH * 2.5 : 0;
-                        const nameTop  = Math.max(by + bh * 0.115, ly - 2 - nameLineH - textSz * 3.5 - 4) + diagonalNudge;
-                        const fortTop  = nameTop + nameLineH + 4;
-                        const centreCol = !rightSide && !leftSide;
-                        p.textSize(nameSize); p.fill(el.hue, el.sat-5, 88, 0.92);
-                        p.textAlign(centreCol ? p.CENTER : p.LEFT, p.TOP);
-                        p.text(el.name, centreCol ? bx + bw / 2 : txLeft, nameTop);
-                        p.textSize(textSz); p.fill(el.hue, el.sat-8, 72, 0.68);
-                        p.textAlign(p.LEFT, p.TOP);
-                        p.text(FORTUNES[i][band], txLeft, fortTop, txWidth);
-                    } else if (lowerHalf) {
-                        const nameTop  = ly + 2;
-                        const fortTop  = nameTop + nameLineH + 4;
-                        const centreCol = !rightSide && !leftSide;
-                        p.textSize(nameSize); p.fill(el.hue, el.sat-5, 88, 0.92);
-                        p.textAlign(centreCol ? p.CENTER : p.LEFT, p.TOP);
-                        p.text(el.name, centreCol ? bx + bw / 2 : txLeft, nameTop);
-                        p.textSize(textSz); p.fill(el.hue, el.sat-8, 72, 0.68);
-                        p.textAlign(p.LEFT, p.TOP);
-                        p.text(FORTUNES[i][band], txLeft, fortTop, txWidth);
-                    } else {
-                        const nameTop = ly - nameLineH * 0.5;
-                        const fortTop = ly + nameLineH * 0.6 + 2;
-                        p.textAlign(p.LEFT, p.TOP);
-                        p.textSize(nameSize); p.fill(el.hue, el.sat-5, 88, 0.92);
-                        p.text(el.name, txLeft, nameTop);
-                        p.textSize(textSz); p.fill(el.hue, el.sat-8, 72, 0.68);
-                        p.text(FORTUNES[i][band], txLeft, fortTop, txWidth);
-                    }
+                    const cosA  = Math.cos(angle), sinA = Math.sin(angle);
+                    const el    = ELEMENTS[i];
+                    p.noStroke(); p.fill(el.hue, el.sat-5, 85, 0.85);
+                    if      (cosA >  0.1) p.textAlign(p.LEFT,  p.CENTER);
+                    else if (cosA < -0.1) p.textAlign(p.RIGHT, p.CENTER);
+                    else                  p.textAlign(p.CENTER, sinA < 0 ? p.BOTTOM : p.TOP);
+                    p.text(el.name, octCX + cosA * labelR, octCY + sinA * labelR);
                 }
             };
 
@@ -2049,7 +2044,8 @@
                     case 'mask':        _dp_mask(data,avgs,nCh,bx,by,bw,bh);        break;
                     case 'anniAlbers':  _dp_anniAlbers(data,avgs,nCh,bx,by,bw,bh);  break;
                     case 'sigilResult':   _dp_sigilResult(data,avgs,nCh,bx,by,bw,bh);   break;
-                    case 'fortuneTeller': _dp_fortuneTeller(data,avgs,nCh,bx,by,bw,bh); break;
+                    case 'fortuneTeller':   _dp_fortuneTeller(data,avgs,nCh,bx,by,bw,bh);   break;
+                    case 'fortuneOctagram': _dp_fortuneOctagram(data,avgs,nCh,bx,by,bw,bh); break;
                     // 'empty': nothing
                 }
             };
@@ -2843,8 +2839,7 @@
                 }, // End anniAlbers
 
                 fortuneTeller: (data) => {
-                    // ─── Fortune Teller — elemental reading reveal ───────────────
-                    // Layout: octagram centred, text + name arranged radially around it
+                    // ─── Fortune Teller — 2-col × 4-row text grid reveal ─────────
                     if (!fortuneDone) fortuneFrame++;
                     const f = fortuneFrame;
 
@@ -2902,197 +2897,78 @@
 
                     p.background(28, 30, 7);
 
-                    // ── Layout ───────────────────────────────────────────────────
-                    const titleY    = H * 0.065;
-                    const pad       = Math.max(8, W * 0.025);
-                    const octCX     = W / 2;
-                    const octCY     = H * 0.54;
-                    const octR      = Math.min(W, H) * 0.200;
-                    const labelR    = octR * 1.28;
-                    const nameSize  = Math.max(9,  W * 0.017);
-                    const textSz    = Math.max(8,  W * 0.014);
-                    const nameLineH = nameSize * 1.4;
+                    // ── Grid layout: 2 cols × 4 rows ─────────────────────────────
+                    const COLS      = 2, ROWS = 4;
+                    const gap       = Math.max(8, W * 0.016);
+                    const cellW     = (W - gap * (COLS + 1)) / COLS;
+                    const cellH     = (H - gap * (ROWS + 1)) / ROWS;
+                    const pad       = Math.max(10, cellW * 0.04);
+                    const accentW   = Math.max(3, cellW * 0.005);
+                    const nameSize  = Math.max(9,  cellH * 0.13);
+                    const textSz    = Math.max(8,  cellH * 0.10);
+                    const barH      = Math.max(2,  cellH * 0.025);
+                    const nameLineH = nameSize * 1.3;
 
-                    // ── Phase 0 (0–45): border ──────────────────────────────────
-                    const bdrA = fadeIn(0, 45);
-                    if (bdrA > 0) {
-                        const bp = Math.max(8, W * 0.013);
-                        const cs = Math.max(9, W * 0.018);
-                        p.noFill(); p.stroke(38, 40, 50, bdrA * 0.5); p.strokeWeight(0.8);
-                        p.rect(bp, bp, W - bp * 2, H - bp * 2);
-                        [[bp,bp,1,1],[W-bp,bp,-1,1],[bp,H-bp,1,-1],[W-bp,H-bp,-1,-1]].forEach(([x,y,sx,sy]) => {
-                            p.stroke(38, 40, 62, bdrA * 0.7);
-                            p.line(x, y, x + sx * cs, y);
-                            p.line(x, y, x, y + sy * cs);
-                        });
-                    }
-
-                    // ── Phase 1 (45–90): title ──────────────────────────────────
-                    const titleA = fadeIn(45, 45);
+                    // Title fades in first
+                    const titleA = fadeIn(0, 20);
                     if (titleA > 0) {
                         p.noStroke(); p.textAlign(p.CENTER, p.CENTER);
-                        p.textSize(Math.max(10, W * 0.021)); p.textFont('Georgia, serif');
-                        p.fill(38, 50, 68, titleA * 0.2);
-                        p.text('\u2736   YOUR READING   \u2736', W * 0.5, titleY + 1.5);
-                        p.fill(38, 35, 90, titleA * 0.88);
-                        p.text('\u2736   YOUR READING   \u2736', W * 0.5, titleY);
+                        p.textSize(Math.max(8, W * 0.014)); p.textFont('Georgia, serif');
+                        p.fill(38, 35, 85, titleA * 0.45);
+                        p.text('\u2736   YOUR READING   \u2736', W * 0.5, gap * 0.55);
                     }
 
-                    // ── Phase 2 (90–210): octagram builds ──────────────────────
-                    if (f > 90) {
-                        const octProg = p.constrain((f - 90) / 120, 0, 1);
-                        const visArms = octProg * 8;
-
-                        // ── Background dot display ───────────────────────────────
-                        // ↓↓↓  ADJUST THESE  ↓↓↓
-                        const DOTS_PER_ARM  = Math.max(1, data.length); // one dot per collected sample
-                        const DOT_R_MAX     = octR * 0.2;  // radius at full sensor value -default 0.07
-                        const DOT_R_MIN     = octR * 0.01;  // radius at zero sensor value
-                        const DOT_ALPHA_MAX = 0.55;         // opacity at full sensor value
-                        const DOT_ALPHA_MIN = 0.06;         // opacity at zero sensor value
-                        // ↑↑↑  ADJUST THESE  ↑↑↑
-
-                        p.noStroke();
-                        for (let i = 0; i < 8; i++) {
-                            const armProg = p.constrain(visArms - i, 0, 1);
-                            if (armProg === 0) continue;
-                            const angle = -p.HALF_PI + (i / 8) * p.TWO_PI;
-                            const val01 = avgs[i] / 360;
-                            const el    = ELEMENTS[i];
-                            for (let d = 0; d < DOTS_PER_ARM; d++) {
-                                const t        = (d + 1) / DOTS_PER_ARM; // 1/N … 1.0 along spoke
-                                const dotFade  = p.constrain(armProg * DOTS_PER_ARM - d, 0, 1);
-                                if (dotFade === 0) continue;
-                                const dist = t * octR;
-                                const dx   = octCX + Math.cos(angle) * dist;
-                                const dy   = octCY + Math.sin(angle) * dist;
-                                const r    = p.lerp(DOT_R_MIN, DOT_R_MAX, val01) * dotFade;
-                                const a    = p.lerp(DOT_ALPHA_MIN, DOT_ALPHA_MAX, val01) * dotFade;
-                                // Soft glow halo
-                                p.fill(el.hue, el.sat - 20, 95, a * 0.22);
-                                p.ellipse(dx, dy, r * 3.8, r * 3.8);
-                                // Core dot
-                                p.fill(el.hue, el.sat, 88, a);
-                                p.ellipse(dx, dy, r * 2, r * 2);
-                            }
-                        }
-
-                        p.noFill(); p.strokeWeight(0.5);
-                        [0.33, 0.66, 1.0].forEach(r => {
-                            p.stroke(38, 15, 32, 0.28 * octProg);
-                            p.ellipse(octCX, octCY, octR * r * 2, octR * r * 2);
-                        });
-
-                        for (let i = 0; i < 8; i++) {
-                            const armProg = p.constrain(visArms - i, 0, 1);
-                            if (armProg === 0) continue;
-                            const angle  = -p.HALF_PI + (i / 8) * p.TWO_PI;
-                            const val01  = avgs[i] / 360;
-                            const el     = ELEMENTS[i];
-                            const armLen = octR * (0.18 + val01 * 0.82) * armProg;
-                            const tipX   = octCX + Math.cos(angle) * armLen;
-                            const tipY   = octCY + Math.sin(angle) * armLen;
-
-                            p.stroke(el.hue, el.sat, 75, 0.16 * armProg); p.strokeWeight(5);
-                            p.line(octCX, octCY, tipX, tipY);
-                            p.stroke(el.hue, el.sat - 10, 90, 0.55 * armProg); p.strokeWeight(1.2);
-                            p.line(octCX, octCY, tipX, tipY);
-                            p.noStroke();
-                            const dr = (2.5 + val01 * 3.5) * armProg;
-                            p.fill(el.hue, el.sat - 15, 96, 0.85 * armProg);
-                            p.ellipse(tipX, tipY, dr * 2, dr * 2);
-                        }
-
-                        const cp = Math.min(octProg * 2.5, 1);
-                        p.noStroke();
-                        p.fill(40, 15, 100, cp * (0.45 + 0.28 * Math.sin(f * 0.07)));
-                        p.ellipse(octCX, octCY, 8, 8);
-                        p.fill(40, 5, 100, cp * 0.6);
-                        p.ellipse(octCX, octCY, 3.5, 3.5);
-                    }
-
-                    // ── Phase 3 (210–450): text reveals around octagram ─────────
-                    // Arms: 0=top, 1=top-right, 2=right, 3=btm-right,
-                    //        4=btm, 5=btm-left, 6=left, 7=top-left
+                    // Rows reveal sequentially (row 0 first, row 3 last)
                     for (let i = 0; i < 8; i++) {
-                        const rowA = fadeIn(210 + i * 30, 22);
-                        if (rowA === 0) continue;
+                        const col   = i % COLS;
+                        const row   = Math.floor(i / COLS);
+                        const cellA = fadeIn(20 + row * 22, 18);
+                        if (cellA === 0) continue;
+
+                        const cx = gap + col * (cellW + gap);
+                        const cy = gap + row * (cellH + gap);
+
                         const el    = ELEMENTS[i];
                         const val   = avgs[i];
+                        const val01 = val / 360;
                         const band  = val < 120 ? 0 : val < 240 ? 1 : 2;
-                        const angle = -p.HALF_PI + (i / 8) * p.TWO_PI;
-                        const cosA  = Math.cos(angle);
-                        const sinA  = Math.sin(angle);
-                        const lx    = octCX + cosA * labelR;
-                        const ly    = octCY + sinA * labelR;
 
-                        const rightSide = cosA >  0.1;
-                        const leftSide  = cosA < -0.1;
-                        const upperHalf = sinA < -0.1;
-                        const lowerHalf = sinA >  0.1;
+                        // Cell background tinted with element colour
+                        p.noStroke();
+                        p.fill(el.hue, el.sat * 0.25, 11, cellA * 0.9);
+                        p.rect(cx, cy, cellW, cellH, 3);
 
-                        // Horizontal text box
-                        let txLeft, txWidth;
-                        if (rightSide) {
-                            txLeft  = lx + 7;
-                            txWidth = Math.max(50, W - txLeft - pad);
-                        } else if (leftSide) {
-                            txWidth = Math.max(50, lx - pad - 7);
-                            txLeft  = lx - 7 - txWidth;
-                        } else {
-                            // i=0 (top) or i=4 (bottom): centred block
-                            txWidth = Math.min(W * 0.50, octR * 3.4);
-                            txLeft  = W / 2 - txWidth / 2;
-                        }
+                        // Left accent strip
+                        p.fill(el.hue, el.sat, 65, cellA * 0.75);
+                        p.rect(cx, cy, accentW, cellH, 2, 0, 0, 2);
 
-                        p.noStroke(); p.textFont('sans-serif');
+                        // Element name
+                        const nameX = cx + pad;
+                        const nameY = cy + pad;
+                        p.textFont('Georgia, serif');
+                        p.textSize(nameSize);
+                        p.fill(el.hue, el.sat - 5, 88, cellA * 0.92);
+                        p.textAlign(p.LEFT, p.TOP);
+                        p.text(el.name, nameX, nameY);
 
-                        if (upperHalf) {
-                            // Text block above the arm tip. Name first (top), fortune below.
-                            // WATER (i=1) and VOID (i=7) are nudged down to clear EARTH's text block.
-                            const diagonalNudge = (i === 1 || i === 7) ? nameLineH * 2.5 : 0;
-                            const nameTop  = Math.max(H * 0.115, ly - 2 - nameLineH - textSz * 3.5 - 4) + diagonalNudge;
-                            const fortTop  = nameTop + nameLineH + 4;
-                            const centreCol = !rightSide && !leftSide;
-                            p.textSize(nameSize);
-                            p.fill(el.hue, el.sat - 5, 88, rowA * 0.92);
-                            p.textAlign(centreCol ? p.CENTER : p.LEFT, p.TOP);
-                            p.text(el.name, centreCol ? W / 2 : txLeft, nameTop);
-                            p.textSize(textSz);
-                            p.fill(el.hue, el.sat - 8, 72, rowA * 0.68);
-                            p.textAlign(p.LEFT, p.TOP);
-                            p.text(FORTUNES[i][band], txLeft, fortTop, txWidth);
-                        } else if (lowerHalf) {
-                            // Text grows downward from ly.
-                            // Name first (closer to arm), fortune below.
-                            const nameTop  = ly + 2;
-                            const fortTop  = nameTop + nameLineH + 4;
-                            const centreCol = !rightSide && !leftSide;
-                            p.textSize(nameSize);
-                            p.fill(el.hue, el.sat - 5, 88, rowA * 0.92);
-                            p.textAlign(centreCol ? p.CENTER : p.LEFT, p.TOP);
-                            p.text(el.name, centreCol ? W / 2 : txLeft, nameTop);
-                            p.textSize(textSz);
-                            p.fill(el.hue, el.sat - 8, 72, rowA * 0.68);
-                            p.textAlign(p.LEFT, p.TOP);
-                            p.text(FORTUNES[i][band], txLeft, fortTop, txWidth);
-                        } else {
-                            // Pure horizontal arms (i=2 right, i=6 left).
-                            // Name centred vertically at ly, fortune below.
-                            const nameTop = ly - nameLineH * 0.5;
-                            const fortTop = ly + nameLineH * 0.6 + 2;
-                            p.textAlign(p.LEFT, p.TOP);
-                            p.textSize(nameSize);
-                            p.fill(el.hue, el.sat - 5, 88, rowA * 0.92);
-                            p.text(el.name, txLeft, nameTop);
-                            p.textSize(textSz);
-                            p.fill(el.hue, el.sat - 8, 72, rowA * 0.68);
-                            p.text(FORTUNES[i][band], txLeft, fortTop, txWidth);
-                        }
+                        // Intensity bar — track then fill
+                        const barY    = nameY + nameLineH + 4;
+                        const barMaxW = cellW - pad * 2;
+                        p.fill(el.hue, el.sat * 0.3, 22, cellA * 0.55);
+                        p.rect(nameX, barY, barMaxW, barH, 1);
+                        p.fill(el.hue, el.sat, 80, cellA * 0.75);
+                        p.rect(nameX, barY, barMaxW * val01, barH, 1);
+
+                        // Fortune text
+                        p.textFont('sans-serif');
+                        p.textSize(textSz);
+                        p.fill(el.hue, el.sat - 10, 70, cellA * 0.7);
+                        p.textAlign(p.LEFT, p.TOP);
+                        p.text(FORTUNES[i][band], nameX, barY + barH + 8, cellW - pad * 2);
                     }
 
-                    // ── Phase 4 (450+): done ─────────────────────────────────────
-                    if (f >= 450 && !fortuneDone) {
+                    // Done at frame 110 (last row fully faded in at ~104)
+                    if (f >= 110 && !fortuneDone) {
                         fortuneDone = true;
                         if (!fortuneSaveTriggered) {
                             fortuneSaveTriggered = true;
@@ -3101,6 +2977,129 @@
                     }
                     if (!fortuneDone) p.loop(); else p.noLoop();
                 }, // End fortuneTeller
+
+                fortuneOctagram: (data) => {
+                    // ─── Fortune Octagram — elemental radar chart ─────────────────
+                    const ELEMENTS = [
+                        { name: 'EARTH',    hue:  32, sat: 55 },
+                        { name: 'WATER',    hue: 210, sat: 70 },
+                        { name: 'FIRE',     hue:  15, sat: 85 },
+                        { name: 'AIR',      hue:  55, sat: 35 },
+                        { name: 'AETHER',   hue: 270, sat: 60 },
+                        { name: 'SHADOW',   hue: 245, sat: 45 },
+                        { name: 'RADIANCE', hue:  45, sat: 80 },
+                        { name: 'VOID',     hue: 190, sat: 28 },
+                    ];
+
+                    const nCh = data.length > 0 ? data[0].length : 0;
+                    const avgs = [];
+                    for (let c = 0; c < 8; c++) {
+                        if (c >= nCh) { avgs.push(0); continue; }
+                        let sum = 0;
+                        for (let i = 0; i < data.length; i++) sum += (data[i][c] || 0);
+                        avgs.push(data.length > 0 ? sum / data.length : 0);
+                    }
+
+                    const W = p.width, H = p.height;
+                    p.background(28, 30, 7);
+
+                    // Layout — centred, larger than in the old combined view
+                    const octCX   = W / 2;
+                    const octCY   = H / 2;
+                    const octR    = Math.min(W, H) * 0.32;
+                    const labelR  = octR * 1.20;
+                    const nameSz  = Math.max(9, Math.min(W, H) * 0.026);
+
+                    // Corner decoration
+                    const bp = Math.max(8, W * 0.013);
+                    const cs = Math.max(9, W * 0.018);
+                    p.noFill(); p.stroke(38, 40, 50, 0.4); p.strokeWeight(0.8);
+                    p.rect(bp, bp, W - bp * 2, H - bp * 2);
+                    [[bp,bp,1,1],[W-bp,bp,-1,1],[bp,H-bp,1,-1],[W-bp,H-bp,-1,-1]].forEach(([x,y,sx,sy]) => {
+                        p.stroke(38, 40, 62, 0.55);
+                        p.line(x, y, x + sx * cs, y);
+                        p.line(x, y, x, y + sy * cs);
+                    });
+
+                    // Title
+                    p.noStroke(); p.textAlign(p.CENTER, p.CENTER);
+                    p.textSize(Math.max(10, W * 0.017)); p.textFont('Georgia, serif');
+                    p.fill(38, 35, 90, 0.55);
+                    p.text('\u2736   YOUR READING   \u2736', W * 0.5, H * 0.055);
+
+                    // ── Background dots ──────────────────────────────────────────
+                    // ↓↓↓  ADJUST THESE  ↓↓↓
+                    const DOTS_PER_ARM  = 8;//Math.max(1, data.length);
+                    const DOT_R_MAX     = octR * 0.07;
+                    const DOT_R_MIN     = octR * 0.01;
+                    const DOT_ALPHA_MAX = 0.55;
+                    const DOT_ALPHA_MIN = 0.06;
+                    // ↑↑↑  ADJUST THESE  ↑↑↑
+                    p.noStroke();
+                    for (let i = 0; i < 8; i++) {
+                        const angle = -p.HALF_PI + (i / 8) * p.TWO_PI;
+                        const val01 = avgs[i] / 360;
+                        const el    = ELEMENTS[i];
+                        for (let d = 0; d < DOTS_PER_ARM; d++) {
+                            const t    = (d + 1) / DOTS_PER_ARM;
+                            const dist = t * octR;
+                            const dx   = octCX + Math.cos(angle) * dist;
+                            const dy   = octCY + Math.sin(angle) * dist;
+                            const r    = p.lerp(DOT_R_MIN, DOT_R_MAX, val01);
+                            const a    = p.lerp(DOT_ALPHA_MIN, DOT_ALPHA_MAX, val01);
+                            p.fill(el.hue, el.sat - 20, 95, a * 0.22);
+                            p.ellipse(dx, dy, r * 3.8, r * 3.8);
+                            p.fill(el.hue, el.sat, 88, a);
+                            p.ellipse(dx, dy, r * 2, r * 2);
+                        }
+                    }
+
+                    // Concentric rings
+                    p.noFill(); p.strokeWeight(0.5);
+                    [0.33, 0.66, 1.0].forEach(r => {
+                        p.stroke(38, 15, 35, 0.35);
+                        p.ellipse(octCX, octCY, octR * r * 2, octR * r * 2);
+                    });
+
+                    // Arms + tip dots
+                    for (let i = 0; i < 8; i++) {
+                        const angle  = -p.HALF_PI + (i / 8) * p.TWO_PI;
+                        const val01  = avgs[i] / 360;
+                        const el     = ELEMENTS[i];
+                        const armLen = octR * (0.18 + val01 * 0.82);
+                        const tipX   = octCX + Math.cos(angle) * armLen;
+                        const tipY   = octCY + Math.sin(angle) * armLen;
+                        p.stroke(el.hue, el.sat, 75, 0.16);    p.strokeWeight(5);   p.line(octCX, octCY, tipX, tipY);
+                        p.stroke(el.hue, el.sat-10, 90, 0.55); p.strokeWeight(1.2); p.line(octCX, octCY, tipX, tipY);
+                        p.noStroke();
+                        const dr = 2.5 + val01 * 3.5;
+                        p.fill(el.hue, el.sat - 15, 96, 0.85);
+                        p.ellipse(tipX, tipY, dr * 2, dr * 2);
+                    }
+
+                    // Centre dot
+                    p.noStroke();
+                    p.fill(40, 15, 100, 0.5);  p.ellipse(octCX, octCY, 8, 8);
+                    p.fill(40, 5,  100, 0.65); p.ellipse(octCX, octCY, 3.5, 3.5);
+
+                    // Element name labels at arm tips
+                    p.textFont('sans-serif');
+                    p.textSize(nameSz);
+                    for (let i = 0; i < 8; i++) {
+                        const angle = -p.HALF_PI + (i / 8) * p.TWO_PI;
+                        const cosA  = Math.cos(angle);
+                        const sinA  = Math.sin(angle);
+                        const el    = ELEMENTS[i];
+                        const lx    = octCX + cosA * labelR;
+                        const ly    = octCY + sinA * labelR;
+                        p.noStroke();
+                        p.fill(el.hue, el.sat - 5, 85, 0.85);
+                        if      (cosA >  0.1) p.textAlign(p.LEFT,   p.CENTER);
+                        else if (cosA < -0.1) p.textAlign(p.RIGHT,  p.CENTER);
+                        else                  p.textAlign(p.CENTER,  sinA < 0 ? p.BOTTOM : p.TOP);
+                        p.text(el.name, lx, ly);
+                    }
+                }, // End fortuneOctagram
 
             }; // End visualizations object
 
