@@ -473,8 +473,9 @@
             'heatmap':     'Heatmap',
             'mask':        'Mask',
             'anniAlbers':  'Anni Albers',
-            'sigilResult': 'Sigil Result',
-            'empty':       'Empty',
+            'sigilResult':    'Sigil Result',
+            'fortuneTeller':  'Fortune Teller',
+            'empty':          'Empty',
         };
 
         // --- Viz Registry ---
@@ -1869,6 +1870,172 @@
                 }
             };
 
+            const _dp_fortuneTeller = (data, avgs, nCh, bx, by, bw, bh) => {
+                const ELEMENTS = [
+                    { name: 'EARTH',    hue:  32, sat: 55 },
+                    { name: 'WATER',    hue: 210, sat: 70 },
+                    { name: 'FIRE',     hue:  15, sat: 85 },
+                    { name: 'AIR',      hue:  55, sat: 35 },
+                    { name: 'AETHER',   hue: 270, sat: 60 },
+                    { name: 'SHADOW',   hue: 245, sat: 45 },
+                    { name: 'RADIANCE', hue:  45, sat: 80 },
+                    { name: 'VOID',     hue: 190, sat: 28 },
+                ];
+                const FORTUNES = [
+                    ["roots seek deeper soil — rest before you reach",
+                     "steady ground holds you — quiet growth unfolds",
+                     "you are anchored — from this foundation all things rise"],
+                    ["still waters within — hold what you feel",
+                     "your current moves unseen — trust its pull",
+                     "the tide is full — let your intuition carry you"],
+                    ["embers await the breath that will rouse them",
+                     "a steady flame burns — enough to light the way",
+                     "you burn with purpose — transformation follows"],
+                    ["thoughts gather like clouds — clarity will come",
+                     "you move through ideas with ease — keep speaking",
+                     "your mind is sharp — ideas arrive before you seek them"],
+                    ["the veil is thick today — patience thins it",
+                     "unseen currents reach you — you are not alone",
+                     "you touch the larger pattern — no accident"],
+                    ["what is hidden rests — honour what you cannot see",
+                     "something stirs beneath — name it gently",
+                     "what was concealed seeks light — do not look away"],
+                    ["your light turns inward — it will return",
+                     "you emit warmth — others are drawn to what you make",
+                     "you shine without effort — creativity seeks its outlet"],
+                    ["you are full — find the hollow for something new",
+                     "space within holds possibility — do not fill it yet",
+                     "the vast quiet within is your greatest gift"],
+                ];
+
+                // Use first 8 channels; fall back to 0
+                const a8 = Array.from({length: 8}, (_, c) => c < nCh ? avgs[c] : 0);
+
+                const pad       = Math.max(4,  bw * 0.025);
+                const octCX     = bx + bw / 2;
+                const octCY     = by + bh * 0.54;
+                const octR      = Math.min(bw, bh) * 0.200;
+                const labelR    = octR * 1.28;
+                const nameSize  = Math.max(6,  bw * 0.017);
+                const textSz    = Math.max(5,  bw * 0.014);
+                const nameLineH = nameSize * 1.4;
+
+                // ── Background dots ──────────────────────────────────────────
+                const DOTS_PER_ARM  = Math.max(1, data.length);
+                const DOT_R_MAX     = octR * 0.07;
+                const DOT_R_MIN     = octR * 0.01;
+                const DOT_ALPHA_MAX = 0.55;
+                const DOT_ALPHA_MIN = 0.06;
+                p.noStroke();
+                for (let i = 0; i < 8; i++) {
+                    const angle = -p.HALF_PI + (i / 8) * p.TWO_PI;
+                    const val01 = a8[i] / 360;
+                    const el    = ELEMENTS[i];
+                    for (let d = 0; d < DOTS_PER_ARM; d++) {
+                        const t    = (d + 1) / DOTS_PER_ARM;
+                        const dist = t * octR;
+                        const dx   = octCX + Math.cos(angle) * dist;
+                        const dy   = octCY + Math.sin(angle) * dist;
+                        const r    = p.lerp(DOT_R_MIN, DOT_R_MAX, val01);
+                        const a    = p.lerp(DOT_ALPHA_MIN, DOT_ALPHA_MAX, val01);
+                        p.fill(el.hue, el.sat - 20, 95, a * 0.22);
+                        p.ellipse(dx, dy, r * 3.8, r * 3.8);
+                        p.fill(el.hue, el.sat, 88, a);
+                        p.ellipse(dx, dy, r * 2, r * 2);
+                    }
+                }
+
+                // ── Concentric rings ─────────────────────────────────────────
+                p.noFill(); p.strokeWeight(0.5);
+                [0.33, 0.66, 1.0].forEach(r => {
+                    p.stroke(38, 15, 32, 0.28);
+                    p.ellipse(octCX, octCY, octR * r * 2, octR * r * 2);
+                });
+
+                // ── Arms ─────────────────────────────────────────────────────
+                for (let i = 0; i < 8; i++) {
+                    const angle  = -p.HALF_PI + (i / 8) * p.TWO_PI;
+                    const val01  = a8[i] / 360;
+                    const el     = ELEMENTS[i];
+                    const armLen = octR * (0.18 + val01 * 0.82);
+                    const tipX   = octCX + Math.cos(angle) * armLen;
+                    const tipY   = octCY + Math.sin(angle) * armLen;
+                    p.stroke(el.hue, el.sat, 75, 0.16);     p.strokeWeight(5);   p.line(octCX, octCY, tipX, tipY);
+                    p.stroke(el.hue, el.sat-10, 90, 0.55);  p.strokeWeight(1.2); p.line(octCX, octCY, tipX, tipY);
+                    p.noStroke();
+                    const dr = 2.5 + val01 * 3.5;
+                    p.fill(el.hue, el.sat - 15, 96, 0.85);
+                    p.ellipse(tipX, tipY, dr * 2, dr * 2);
+                }
+
+                // ── Centre dot ───────────────────────────────────────────────
+                p.noStroke();
+                p.fill(40, 15, 100, 0.45); p.ellipse(octCX, octCY, 8, 8);
+                p.fill(40, 5,  100, 0.60); p.ellipse(octCX, octCY, 3.5, 3.5);
+
+                // ── Text labels ──────────────────────────────────────────────
+                for (let i = 0; i < 8; i++) {
+                    const el    = ELEMENTS[i];
+                    const val   = a8[i];
+                    const band  = val < 120 ? 0 : val < 240 ? 1 : 2;
+                    const angle = -p.HALF_PI + (i / 8) * p.TWO_PI;
+                    const cosA  = Math.cos(angle);
+                    const sinA  = Math.sin(angle);
+                    const lx    = octCX + cosA * labelR;
+                    const ly    = octCY + sinA * labelR;
+
+                    const rightSide = cosA >  0.1;
+                    const leftSide  = cosA < -0.1;
+                    const upperHalf = sinA < -0.1;
+                    const lowerHalf = sinA >  0.1;
+
+                    let txLeft, txWidth;
+                    if (rightSide) {
+                        txLeft  = lx + 7;
+                        txWidth = Math.max(30, bx + bw - txLeft - pad);
+                    } else if (leftSide) {
+                        txWidth = Math.max(30, lx - bx - pad - 7);
+                        txLeft  = lx - 7 - txWidth;
+                    } else {
+                        txWidth = Math.min(bw * 0.50, octR * 3.4);
+                        txLeft  = bx + bw / 2 - txWidth / 2;
+                    }
+
+                    p.noStroke(); p.textFont('sans-serif');
+
+                    if (upperHalf) {
+                        const diagonalNudge = (i === 1 || i === 7) ? nameLineH * 2.5 : 0;
+                        const nameTop  = Math.max(by + bh * 0.115, ly - 2 - nameLineH - textSz * 3.5 - 4) + diagonalNudge;
+                        const fortTop  = nameTop + nameLineH + 4;
+                        const centreCol = !rightSide && !leftSide;
+                        p.textSize(nameSize); p.fill(el.hue, el.sat-5, 88, 0.92);
+                        p.textAlign(centreCol ? p.CENTER : p.LEFT, p.TOP);
+                        p.text(el.name, centreCol ? bx + bw / 2 : txLeft, nameTop);
+                        p.textSize(textSz); p.fill(el.hue, el.sat-8, 72, 0.68);
+                        p.textAlign(p.LEFT, p.TOP);
+                        p.text(FORTUNES[i][band], txLeft, fortTop, txWidth);
+                    } else if (lowerHalf) {
+                        const nameTop  = ly + 2;
+                        const fortTop  = nameTop + nameLineH + 4;
+                        const centreCol = !rightSide && !leftSide;
+                        p.textSize(nameSize); p.fill(el.hue, el.sat-5, 88, 0.92);
+                        p.textAlign(centreCol ? p.CENTER : p.LEFT, p.TOP);
+                        p.text(el.name, centreCol ? bx + bw / 2 : txLeft, nameTop);
+                        p.textSize(textSz); p.fill(el.hue, el.sat-8, 72, 0.68);
+                        p.textAlign(p.LEFT, p.TOP);
+                        p.text(FORTUNES[i][band], txLeft, fortTop, txWidth);
+                    } else {
+                        const nameTop = ly - nameLineH * 0.5;
+                        const fortTop = ly + nameLineH * 0.6 + 2;
+                        p.textAlign(p.LEFT, p.TOP);
+                        p.textSize(nameSize); p.fill(el.hue, el.sat-5, 88, 0.92);
+                        p.text(el.name, txLeft, nameTop);
+                        p.textSize(textSz); p.fill(el.hue, el.sat-8, 72, 0.68);
+                        p.text(FORTUNES[i][band], txLeft, fortTop, txWidth);
+                    }
+                }
+            };
+
             const dashPanelRender = (type, data, avgs, nCh, bx, by, bw, bh) => {
                 switch(type) {
                     case 'sparklines':  _dp_sparklines(data,avgs,nCh,bx,by,bw,bh);  break;
@@ -1881,7 +2048,8 @@
                     case 'heatmap':     _dp_heatmap(data,avgs,nCh,bx,by,bw,bh);     break;
                     case 'mask':        _dp_mask(data,avgs,nCh,bx,by,bw,bh);        break;
                     case 'anniAlbers':  _dp_anniAlbers(data,avgs,nCh,bx,by,bw,bh);  break;
-                    case 'sigilResult': _dp_sigilResult(data,avgs,nCh,bx,by,bw,bh); break;
+                    case 'sigilResult':   _dp_sigilResult(data,avgs,nCh,bx,by,bw,bh);   break;
+                    case 'fortuneTeller': _dp_fortuneTeller(data,avgs,nCh,bx,by,bw,bh); break;
                     // 'empty': nothing
                 }
             };
