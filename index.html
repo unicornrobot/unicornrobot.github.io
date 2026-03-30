@@ -1686,12 +1686,22 @@
             };
 
             const _dp_linegraph = (data, avgs, nCh, bx, by, bw, bh) => {
-                if (data.length<2) return;
-                const pad=6, xStep=bw/(data.length-1);
-                for (let j=0;j<nCh;j++) {
-                    const hue=(j/nCh)*300; p.noFill(); p.stroke(hue,75,85,0.65); p.strokeWeight(0.9);
+                if (data.length < 2) return;
+                const pad = 6, xStep = bw / (data.length - 1);
+                const win = Math.max(5, Math.round(data.length * 0.08));
+                const half = Math.floor(win / 2);
+                for (let j = 0; j < nCh; j++) {
+                    const hue = (j / nCh) * 300;
+                    p.noFill(); p.stroke(hue, 75, 85, 0.65); p.strokeWeight(0.9);
                     p.beginShape();
-                    for (let i=0;i<data.length;i++) p.vertex(bx+i*xStep, p.map(data[i][j]||0,0,360,by+bh-pad,by+pad));
+                    for (let i = 0; i < data.length; i++) {
+                        let sum = 0, count = 0;
+                        for (let k = i - half; k <= i + half; k++) {
+                            const ki = Math.max(0, Math.min(data.length - 1, k));
+                            sum += data[ki][j] || 0; count++;
+                        }
+                        p.curveVertex(bx + i * xStep, p.map(sum / count, 0, 360, by + bh - pad, by + pad));
+                    }
                     p.endShape();
                 }
             };
@@ -1964,70 +1974,74 @@
 
             const _dp_fortuneOctagram = (data, avgs, nCh, bx, by, bw, bh) => {
                 const ELEMENTS = [
-                    { name: 'EARTH',    hue:  32, sat: 55 },
-                    { name: 'WATER',    hue: 210, sat: 70 },
-                    { name: 'FIRE',     hue:  15, sat: 85 },
-                    { name: 'AIR',      hue:  55, sat: 35 },
-                    { name: 'AETHER',   hue: 270, sat: 60 },
-                    { name: 'SHADOW',   hue: 245, sat: 45 },
-                    { name: 'RADIANCE', hue:  45, sat: 80 },
-                    { name: 'VOID',     hue: 190, sat: 28 },
+                    { name: 'EARTH',    hue:  38, sat: 90 },
+                    { name: 'WATER',    hue: 185, sat: 95 },
+                    { name: 'FIRE',     hue:  12, sat: 95 },
+                    { name: 'AIR',      hue:  75, sat: 80 },
+                    { name: 'AETHER',   hue: 280, sat: 85 },
+                    { name: 'SHADOW',   hue: 245, sat: 80 },
+                    { name: 'RADIANCE', hue:  50, sat: 95 },
+                    { name: 'VOID',     hue: 165, sat: 75 },
                 ];
-                const a8     = Array.from({length: 8}, (_, c) => c < nCh ? avgs[c] : 0);
-                const octCX  = bx + bw / 2;
-                const octCY  = by + bh / 2;
-                const octR   = Math.min(bw, bh) * 0.32;
-                const labelR = octR * 1.20;
-                const nameSz = Math.max(5, Math.min(bw, bh) * 0.026);
+                const octCX      = bx + bw / 2;
+                const octCY      = by + bh / 2;
+                const ARM_LENGTH = Math.min(bw, bh) * 0.40;
+                const MAX_R      = ARM_LENGTH * 0.10;
+                const ARM_START  = ARM_LENGTH * 0.04;
+                const n          = data.length;
+                p.noFill();
 
-                // Background dots
-                const DOTS = Math.max(1, data.length);
-                p.noStroke();
-                for (let i = 0; i < 8; i++) {
-                    const angle = -p.HALF_PI + (i / 8) * p.TWO_PI;
-                    const val01 = a8[i] / 360;
-                    const el    = ELEMENTS[i];
-                    for (let d = 0; d < DOTS; d++) {
-                        const t = (d + 1) / DOTS;
-                        const dx = octCX + Math.cos(angle) * t * octR;
-                        const dy = octCY + Math.sin(angle) * t * octR;
-                        const r  = p.lerp(octR * 0.01, octR * 0.07, val01);
-                        const a  = p.lerp(0.06, 0.55, val01);
-                        p.fill(el.hue, el.sat - 20, 95, a * 0.22); p.ellipse(dx, dy, r * 3.8, r * 3.8);
-                        p.fill(el.hue, el.sat, 88, a);              p.ellipse(dx, dy, r * 2,   r * 2);
+                // Spider web
+                const spiderEvery = Math.max(1, Math.floor(n / 150));
+                for (let d = 0; d < n; d += spiderEvery) {
+                    p.stroke(0, 0, 100, 0.04); p.strokeWeight(0.4);
+                    p.beginShape();
+                    for (let ch = 0; ch < 8; ch++) {
+                        const angle = -p.HALF_PI + (ch / 8) * p.TWO_PI;
+                        const val01 = (data[d][ch] || 0) / 360;
+                        const r = ARM_START + val01 * ARM_LENGTH * 0.55;
+                        p.vertex(octCX + Math.cos(angle) * r, octCY + Math.sin(angle) * r);
+                    }
+                    p.endShape(p.CLOSE);
+                    for (let ch = 0; ch < 8; ch++) {
+                        const angle = -p.HALF_PI + (ch / 8) * p.TWO_PI;
+                        const val01 = (data[d][ch] || 0) / 360;
+                        const r = ARM_START + val01 * ARM_LENGTH * 0.55;
+                        p.stroke(ELEMENTS[ch].hue, ELEMENTS[ch].sat, 95, 0.06); p.strokeWeight(0.4);
+                        p.line(octCX, octCY, octCX + Math.cos(angle) * r, octCY + Math.sin(angle) * r);
                     }
                 }
-                // Concentric rings
-                p.noFill(); p.strokeWeight(0.5);
-                [0.33, 0.66, 1.0].forEach(r => { p.stroke(38, 15, 35, 0.35); p.ellipse(octCX, octCY, octR*r*2, octR*r*2); });
-                // Arms
-                for (let i = 0; i < 8; i++) {
-                    const angle  = -p.HALF_PI + (i / 8) * p.TWO_PI;
-                    const val01  = a8[i] / 360;
-                    const el     = ELEMENTS[i];
-                    const armLen = octR * (0.18 + val01 * 0.82);
-                    const tipX   = octCX + Math.cos(angle) * armLen;
-                    const tipY   = octCY + Math.sin(angle) * armLen;
-                    p.stroke(el.hue, el.sat, 75, 0.16);    p.strokeWeight(5);   p.line(octCX, octCY, tipX, tipY);
-                    p.stroke(el.hue, el.sat-10, 90, 0.55); p.strokeWeight(1.2); p.line(octCX, octCY, tipX, tipY);
-                    p.noStroke(); const dr = 2.5 + val01 * 3.5;
-                    p.fill(el.hue, el.sat-15, 96, 0.85); p.ellipse(tipX, tipY, dr*2, dr*2);
+                // Circle trails
+                for (let ch = 0; ch < 8; ch++) {
+                    const angle = -p.HALF_PI + (ch / 8) * p.TWO_PI;
+                    const cosA = Math.cos(angle), sinA = Math.sin(angle);
+                    const el = ELEMENTS[ch];
+                    for (let d = 0; d < n; d++) {
+                        const t = n > 1 ? d / (n - 1) : 0;
+                        const dist = ARM_START + t * (ARM_LENGTH - ARM_START);
+                        const val01 = (data[d][ch] || 0) / 360;
+                        const r = val01 * MAX_R;
+                        if (r < 0.5) continue;
+                        const px = octCX + cosA * dist, py = octCY + sinA * dist;
+                        p.stroke(el.hue, el.sat * 0.5, 100, 0.08); p.strokeWeight(2.5);
+                        p.ellipse(px, py, r * 3.2, r * 3.2);
+                        p.stroke(el.hue, el.sat, 95, 0.50); p.strokeWeight(0.7);
+                        p.ellipse(px, py, r * 2, r * 2);
+                    }
                 }
-                // Centre dot
-                p.noStroke();
-                p.fill(40, 15, 100, 0.5);  p.ellipse(octCX, octCY, 8, 8);
-                p.fill(40, 5,  100, 0.65); p.ellipse(octCX, octCY, 3.5, 3.5);
                 // Name labels
+                const nameSz    = Math.max(5, Math.min(bw, bh) * 0.022);
+                const labelDist = ARM_LENGTH + MAX_R + Math.max(6, nameSz * 1.0);
                 p.textFont('sans-serif'); p.textSize(nameSz);
                 for (let i = 0; i < 8; i++) {
                     const angle = -p.HALF_PI + (i / 8) * p.TWO_PI;
-                    const cosA  = Math.cos(angle), sinA = Math.sin(angle);
-                    const el    = ELEMENTS[i];
-                    p.noStroke(); p.fill(el.hue, el.sat-5, 85, 0.85);
-                    if      (cosA >  0.1) p.textAlign(p.LEFT,  p.CENTER);
-                    else if (cosA < -0.1) p.textAlign(p.RIGHT, p.CENTER);
-                    else                  p.textAlign(p.CENTER, sinA < 0 ? p.BOTTOM : p.TOP);
-                    p.text(el.name, octCX + cosA * labelR, octCY + sinA * labelR);
+                    const cosA = Math.cos(angle), sinA = Math.sin(angle);
+                    const el = ELEMENTS[i];
+                    p.noStroke(); p.fill(el.hue, el.sat - 10, 88, 0.9);
+                    if      (cosA >  0.1) p.textAlign(p.LEFT,   p.CENTER);
+                    else if (cosA < -0.1) p.textAlign(p.RIGHT,  p.CENTER);
+                    else                  p.textAlign(p.CENTER,  sinA < 0 ? p.BOTTOM : p.TOP);
+                    p.text(el.name, octCX + cosA * labelDist, octCY + sinA * labelDist);
                 }
             };
 
@@ -2055,44 +2069,52 @@
             const visualizations = {
                 lines: (data) => {
                     p.noFill();
-                    p.strokeWeight(1.5); // Set consistent stroke weight
+                    p.strokeWeight(1.5);
 
-                    if (data.length === 0 || data[0].length === 0) return; // No data
+                    if (data.length === 0 || data[0].length === 0) return;
 
                     const numLines = data[0].length;
-                    const spacing = p.width / (data.length -1 || 1); // Avoid division by zero if only 1 point
-                    const hueStep = 360 / (numLines || 1); // Distribute hues evenly
+                    const spacing  = p.width / (data.length - 1 || 1);
+                    const hueStep  = 360 / (numLines || 1);
+
+                    // Moving-average window — ~8% of samples, minimum 5
+                    const win = Math.max(5, Math.round(data.length * 0.08));
+                    const half = Math.floor(win / 2);
 
                     for (let j = 0; j < numLines; j++) {
-                        // --- Set color ONCE per line based on index j ---
                         const lineHue = (j * hueStep) % 360;
-                        // Using fixed saturation and brightness for clarity between lines
-                        // Adjust alpha (last parameter) for transparency if needed (e.g., 0.8 for 80% opaque)
-                        p.stroke(lineHue, 85, 90, 1.0); 
-                        // ----------------------------------------------
+                        p.stroke(lineHue, 85, 90, 1.0);
 
                         p.beginShape();
-                        // Add first point twice for smooth start
-                        const startX = 0;
-                        const startY = p.map(data[0][j] || 0, 0, 360, p.height - 20, 20);
-                        p.curveVertex(startX, startY);
-                        p.curveVertex(startX, startY);
+                        const firstY = p.map(data[0][j] || 0, 0, 360, p.height - 20, 20);
+                        p.curveVertex(0, firstY);
+                        p.curveVertex(0, firstY);
 
                         for (let i = 0; i < data.length; i++) {
+                            // Average values in [i-half … i+half], clamped to array bounds
+                            let sum = 0, count = 0;
+                            for (let k = i - half; k <= i + half; k++) {
+                                const ki = Math.max(0, Math.min(data.length - 1, k));
+                                sum += data[ki][j] || 0;
+                                count++;
+                            }
                             const x = i * spacing;
-                            const value = data[i][j] || 0;
-                            // Map data value (0-360) to canvas height (with padding)
-                            const y = p.map(value, 0, 360, p.height - 20, 20);
-                            
+                            const y = p.map(sum / count, 0, 360, p.height - 20, 20);
                             p.curveVertex(x, y);
                         }
 
-                        // Add last point twice for smooth end
+                        const lastSmooth = (() => {
+                            let s = 0, c = 0;
+                            for (let k = data.length - 1 - half; k <= data.length - 1 + half; k++) {
+                                const ki = Math.max(0, Math.min(data.length - 1, k));
+                                s += data[ki][j] || 0; c++;
+                            }
+                            return p.map(s / c, 0, 360, p.height - 20, 20);
+                        })();
                         const endX = (data.length - 1) * spacing;
-                        const endY = p.map(data[data.length - 1][j] || 0, 0, 360, p.height - 20, 20);
-                        p.curveVertex(endX, endY);
-                        p.curveVertex(endX, endY);
-                        
+                        p.curveVertex(endX, lastSmooth);
+                        p.curveVertex(endX, lastSmooth);
+
                         p.endShape();
                     }
 
@@ -2979,16 +3001,16 @@
                 }, // End fortuneTeller
 
                 fortuneOctagram: (data) => {
-                    // ─── Fortune Octagram — elemental radar chart ─────────────────
+                    // ─── Fortune Octagram — circle trails + spider web ────────────
                     const ELEMENTS = [
-                        { name: 'EARTH',    hue:  32, sat: 55 },
-                        { name: 'WATER',    hue: 210, sat: 70 },
-                        { name: 'FIRE',     hue:  15, sat: 85 },
-                        { name: 'AIR',      hue:  55, sat: 35 },
-                        { name: 'AETHER',   hue: 270, sat: 60 },
-                        { name: 'SHADOW',   hue: 245, sat: 45 },
-                        { name: 'RADIANCE', hue:  45, sat: 80 },
-                        { name: 'VOID',     hue: 190, sat: 28 },
+                        { name: 'EARTH',    hue:  38, sat: 90 },
+                        { name: 'WATER',    hue: 185, sat: 95 },
+                        { name: 'FIRE',     hue:  12, sat: 95 },
+                        { name: 'AIR',      hue:  75, sat: 80 },
+                        { name: 'AETHER',   hue: 280, sat: 85 },
+                        { name: 'SHADOW',   hue: 245, sat: 80 },
+                        { name: 'RADIANCE', hue:  50, sat: 95 },
+                        { name: 'VOID',     hue: 165, sat: 75 },
                     ];
 
                     const nCh = data.length > 0 ? data[0].length : 0;
@@ -3001,103 +3023,82 @@
                     }
 
                     const W = p.width, H = p.height;
-                    p.background(28, 30, 7);
+                    const octCX = W / 2, octCY = H / 2;
+                    p.background(0, 0, 3);
 
-                    // Layout — centred, larger than in the old combined view
-                    const octCX   = W / 2;
-                    const octCY   = H / 2;
-                    const octR    = Math.min(W, H) * 0.32;
-                    const labelR  = octR * 1.20;
-                    const nameSz  = Math.max(9, Math.min(W, H) * 0.026);
-
-                    // Corner decoration
-                    const bp = Math.max(8, W * 0.013);
-                    const cs = Math.max(9, W * 0.018);
-                    p.noFill(); p.stroke(38, 40, 50, 0.4); p.strokeWeight(0.8);
-                    p.rect(bp, bp, W - bp * 2, H - bp * 2);
-                    [[bp,bp,1,1],[W-bp,bp,-1,1],[bp,H-bp,1,-1],[W-bp,H-bp,-1,-1]].forEach(([x,y,sx,sy]) => {
-                        p.stroke(38, 40, 62, 0.55);
-                        p.line(x, y, x + sx * cs, y);
-                        p.line(x, y, x, y + sy * cs);
-                    });
-
-                    // Title
-                    p.noStroke(); p.textAlign(p.CENTER, p.CENTER);
-                    p.textSize(Math.max(10, W * 0.017)); p.textFont('Georgia, serif');
-                    p.fill(38, 35, 90, 0.55);
-                    p.text('\u2736   YOUR READING   \u2736', W * 0.5, H * 0.055);
-
-                    // ── Background dots ──────────────────────────────────────────
                     // ↓↓↓  ADJUST THESE  ↓↓↓
-                    const DOTS_PER_ARM  = 8;//Math.max(1, data.length);
-                    const DOT_R_MAX     = octR * 0.07;
-                    const DOT_R_MIN     = octR * 0.01;
-                    const DOT_ALPHA_MAX = 0.55;
-                    const DOT_ALPHA_MIN = 0.06;
+                    const ARM_LENGTH   = Math.min(W, H) * 0.40; // centre → furthest circle centre
+                    const MAX_CIRCLE_R = ARM_LENGTH * 0.10;      // circle radius at value 360
+                    const ARM_START    = ARM_LENGTH * 0.04;      // inner dead zone near centre
+                    const SPIDER_SCALE = 0.55;                   // spider radius as fraction of ARM_LENGTH
                     // ↑↑↑  ADJUST THESE  ↑↑↑
-                    p.noStroke();
-                    for (let i = 0; i < 8; i++) {
-                        const angle = -p.HALF_PI + (i / 8) * p.TWO_PI;
-                        const val01 = avgs[i] / 360;
-                        const el    = ELEMENTS[i];
-                        for (let d = 0; d < DOTS_PER_ARM; d++) {
-                            const t    = (d + 1) / DOTS_PER_ARM;
-                            const dist = t * octR;
-                            const dx   = octCX + Math.cos(angle) * dist;
-                            const dy   = octCY + Math.sin(angle) * dist;
-                            const r    = p.lerp(DOT_R_MIN, DOT_R_MAX, val01);
-                            const a    = p.lerp(DOT_ALPHA_MIN, DOT_ALPHA_MAX, val01);
-                            p.fill(el.hue, el.sat - 20, 95, a * 0.22);
-                            p.ellipse(dx, dy, r * 3.8, r * 3.8);
-                            p.fill(el.hue, el.sat, 88, a);
-                            p.ellipse(dx, dy, r * 2, r * 2);
+
+                    const n = data.length;
+                    p.noFill();
+
+                    // ── Layer 1: per-frame spider web ───────────────────────────
+                    // White polygon at each sampled frame accumulates into a dense centre
+                    const spiderEvery = Math.max(1, Math.floor(n / 200));
+                    for (let d = 0; d < n; d += spiderEvery) {
+                        // Connecting polygon (white, very faint)
+                        p.stroke(0, 0, 100, 0.035); p.strokeWeight(0.4);
+                        p.beginShape();
+                        for (let ch = 0; ch < 8; ch++) {
+                            const angle = -p.HALF_PI + (ch / 8) * p.TWO_PI;
+                            const val01 = (data[d][ch] || 0) / 360;
+                            const r = ARM_START + val01 * ARM_LENGTH * SPIDER_SCALE;
+                            p.vertex(octCX + Math.cos(angle) * r, octCY + Math.sin(angle) * r);
+                        }
+                        p.endShape(p.CLOSE);
+                        // Per-channel coloured radial spokes
+                        for (let ch = 0; ch < 8; ch++) {
+                            const angle = -p.HALF_PI + (ch / 8) * p.TWO_PI;
+                            const val01 = (data[d][ch] || 0) / 360;
+                            const r = ARM_START + val01 * ARM_LENGTH * SPIDER_SCALE;
+                            const el = ELEMENTS[ch];
+                            p.stroke(el.hue, el.sat, 95, 0.05); p.strokeWeight(0.4);
+                            p.line(octCX, octCY, octCX + Math.cos(angle) * r, octCY + Math.sin(angle) * r);
                         }
                     }
 
-                    // Concentric rings
-                    p.noFill(); p.strokeWeight(0.5);
-                    [0.33, 0.66, 1.0].forEach(r => {
-                        p.stroke(38, 15, 35, 0.35);
-                        p.ellipse(octCX, octCY, octR * r * 2, octR * r * 2);
-                    });
-
-                    // Arms + tip dots
-                    for (let i = 0; i < 8; i++) {
-                        const angle  = -p.HALF_PI + (i / 8) * p.TWO_PI;
-                        const val01  = avgs[i] / 360;
-                        const el     = ELEMENTS[i];
-                        const armLen = octR * (0.18 + val01 * 0.82);
-                        const tipX   = octCX + Math.cos(angle) * armLen;
-                        const tipY   = octCY + Math.sin(angle) * armLen;
-                        p.stroke(el.hue, el.sat, 75, 0.16);    p.strokeWeight(5);   p.line(octCX, octCY, tipX, tipY);
-                        p.stroke(el.hue, el.sat-10, 90, 0.55); p.strokeWeight(1.2); p.line(octCX, octCY, tipX, tipY);
-                        p.noStroke();
-                        const dr = 2.5 + val01 * 3.5;
-                        p.fill(el.hue, el.sat - 15, 96, 0.85);
-                        p.ellipse(tipX, tipY, dr * 2, dr * 2);
+                    // ── Layer 2: circle trails along each arm ───────────────────
+                    // One circle per data sample; position = time, radius = value
+                    for (let ch = 0; ch < 8; ch++) {
+                        const angle = -p.HALF_PI + (ch / 8) * p.TWO_PI;
+                        const cosA  = Math.cos(angle), sinA = Math.sin(angle);
+                        const el    = ELEMENTS[ch];
+                        for (let d = 0; d < n; d++) {
+                            const t     = n > 1 ? d / (n - 1) : 0;
+                            const dist  = ARM_START + t * (ARM_LENGTH - ARM_START);
+                            const val01 = (data[d][ch] || 0) / 360;
+                            const r     = val01 * MAX_CIRCLE_R;
+                            if (r < 0.5) continue;
+                            const px = octCX + cosA * dist;
+                            const py = octCY + sinA * dist;
+                            // Soft outer glow
+                            p.stroke(el.hue, el.sat * 0.5, 100, 0.08);
+                            p.strokeWeight(2.5);
+                            p.ellipse(px, py, r * 3.2, r * 3.2);
+                            // Core ring
+                            p.stroke(el.hue, el.sat, 95, 0.50);
+                            p.strokeWeight(0.7);
+                            p.ellipse(px, py, r * 2, r * 2);
+                        }
                     }
 
-                    // Centre dot
-                    p.noStroke();
-                    p.fill(40, 15, 100, 0.5);  p.ellipse(octCX, octCY, 8, 8);
-                    p.fill(40, 5,  100, 0.65); p.ellipse(octCX, octCY, 3.5, 3.5);
-
-                    // Element name labels at arm tips
-                    p.textFont('sans-serif');
-                    p.textSize(nameSz);
+                    // ── Layer 3: element name labels ────────────────────────────
+                    const nameSz    = Math.max(9, Math.min(W, H) * 0.022);
+                    const labelDist = ARM_LENGTH + MAX_CIRCLE_R + Math.max(10, nameSz * 1.1);
+                    p.textFont('sans-serif'); p.textSize(nameSz);
                     for (let i = 0; i < 8; i++) {
                         const angle = -p.HALF_PI + (i / 8) * p.TWO_PI;
-                        const cosA  = Math.cos(angle);
-                        const sinA  = Math.sin(angle);
+                        const cosA  = Math.cos(angle), sinA = Math.sin(angle);
                         const el    = ELEMENTS[i];
-                        const lx    = octCX + cosA * labelR;
-                        const ly    = octCY + sinA * labelR;
-                        p.noStroke();
-                        p.fill(el.hue, el.sat - 5, 85, 0.85);
+                        p.noStroke(); p.fill(el.hue, el.sat - 10, 88, 0.9);
                         if      (cosA >  0.1) p.textAlign(p.LEFT,   p.CENTER);
                         else if (cosA < -0.1) p.textAlign(p.RIGHT,  p.CENTER);
                         else                  p.textAlign(p.CENTER,  sinA < 0 ? p.BOTTOM : p.TOP);
-                        p.text(el.name, lx, ly);
+                        p.text(el.name, octCX + cosA * labelDist, octCY + sinA * labelDist);
                     }
                 }, // End fortuneOctagram
 
