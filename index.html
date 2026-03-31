@@ -8,6 +8,16 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
     <script src="idb.js"></script>
+    <!-- Rampensau: harmonious color ramp generator -->
+    <script type="module">
+        import { generateColorRamp } from 'https://esm.sh/rampensau';
+        window._rampensau = { generateColorRamp };
+        // Notify app that rampensau is ready (module loads async after DOMContentLoaded)
+        if (typeof window.onRampensauReady === 'function') window.onRampensauReady();
+        else window.addEventListener('rampensauready', () => {});
+        // Fire a custom event so the app can react
+        window.dispatchEvent(new Event('rampensauready'));
+    </script>
     <style>
         *, *::before, *::after { box-sizing: border-box; }
 
@@ -232,6 +242,27 @@
                 </div>
             </div>
 
+            <!-- Color Palette -->
+            <div>
+                <div class="sidebar-section-title">Color Palette</div>
+                <div style="display:flex; flex-direction:column; gap:5px;">
+                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px;">
+                        <input type="radio" name="paletteMode" value="default" checked> Default
+                    </label>
+                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px;">
+                        <input type="radio" name="paletteMode" value="avgMapped"> Reading-mapped
+                    </label>
+                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px;">
+                        <input type="radio" name="paletteMode" value="harmonious"> Harmonious
+                    </label>
+                </div>
+                <div id="harmonicsPaletteRow" style="margin-top:6px; display:none;">
+                    <select id="harmonicsPaletteSelect" style="width:100%; font-size:11px;"></select>
+                </div>
+                <!-- Live swatch preview -->
+                <div id="paletteSwatch" style="display:flex; gap:2px; margin-top:7px; height:12px; border-radius:3px; overflow:hidden;"></div>
+            </div>
+
             <!-- Dashboard Layout Config (shown when auraDashboard is selected) -->
             <div id="dashboardConfigSection" style="display:none;">
                 <div class="sidebar-section-title">Dashboard Layout</div>
@@ -450,6 +481,122 @@
         let p5Instance; // To hold the p5 sketch instance
         let currentVisualization = 'auraDashboard'; // Default FINAL visualization
         let currentLiveVisualization = 'auraReading'; // Default LIVE visualization
+
+        // ─── Color Palette System ────────────────────────────────────────────────────
+        // paletteMode: 'default' | 'avgMapped' | 'harmonious'
+        // When 'harmonious', harmonicsPaletteKey selects which preset to use.
+        let paletteMode = 'default';
+        let harmonicsPaletteKey = 'cosmic'; // which harmonious preset is active
+
+        // Harmonious palette presets — each generates 8 HSB colors via rampensau.
+        // Colors stored as { h, s, b } in HSB (0-360, 0-100, 0-100).
+        // Generated lazily on first use (rampensau loads asynchronously as a module).
+        const HARMONIOUS_PRESETS = {
+            cosmic: {
+                label: 'Cosmic',
+                generate: () => _rampHSB({ hStart: 260, hCycles: 1.1, sRange: [0.55, 0.95], lRange: [0.35, 0.75] })
+            },
+            ember: {
+                label: 'Ember',
+                generate: () => _rampHSB({ hStart: 10, hCycles: 0.25, sRange: [0.7, 1.0], lRange: [0.35, 0.75] })
+            },
+            ocean: {
+                label: 'Ocean',
+                generate: () => _rampHSB({ hStart: 170, hCycles: 0.55, sRange: [0.5, 0.95], lRange: [0.3, 0.72] })
+            },
+            prism: {
+                label: 'Prism',
+                generate: () => _rampHSB({ hStart: 0, hCycles: 1.0, sRange: [0.65, 0.95], lRange: [0.38, 0.72] })
+            },
+            forest: {
+                label: 'Forest',
+                generate: () => _rampHSB({ hStart: 80, hCycles: 0.45, sRange: [0.45, 0.85], lRange: [0.28, 0.65] })
+            },
+            aurora: {
+                label: 'Aurora',
+                generate: () => _rampHSB({ hStart: 140, hCycles: 0.7, sRange: [0.6, 0.95], lRange: [0.4, 0.78] })
+            },
+            dusk: {
+                label: 'Dusk',
+                generate: () => _rampHSB({ hStart: 300, hCycles: 0.35, sRange: [0.5, 0.9], lRange: [0.3, 0.7] })
+            },
+            glacier: {
+                 label: 'Glacier',
+                 generate: () => _rampHSB({ hStart: 195, hCycles: 0.2, sRange: [0.2, 0.6], lRange: [0.55, 0.85] })
+             },
+        };
+
+        // Convert rampensau HSL output → HSB for p5.js HSB mode
+        function _hslToHsb(h, s, l) {
+            // h: 0-360, s: 0-1, l: 0-1  →  h: 0-360, s: 0-100, b: 0-100
+            const v = l + s * Math.min(l, 1 - l);
+            const sv = v === 0 ? 0 : 2 * (1 - l / v);
+            return { h: h % 360, s: sv * 100, b: v * 100 };
+        }
+
+        function _rampHSB(opts) {
+            const ramp = window._rampensau?.generateColorRamp;
+            if (!ramp) return null; // not loaded yet
+            const colors = ramp({ total: 8, ...opts });
+            return colors.map(([h, s, l]) => _hslToHsb(h, s, l));
+        }
+
+        // Cache for generated palettes (re-generate when rampensau becomes available)
+        let _paletteCache = {};
+
+        function getPalette(key) {
+            if (!_paletteCache[key]) {
+                const preset = HARMONIOUS_PRESETS[key];
+                if (!preset) return null;
+                _paletteCache[key] = preset.generate();
+            }
+            return _paletteCache[key];
+        }
+
+        // Invalidate cache when rampensau loads (the module fires asynchronously)
+        function onRampensauReady() { _paletteCache = {}; }
+
+        // ── DEFAULT palette (8 fixed channels, HSB) ─────────────────────────────────
+        const PALETTE_DEFAULT = [
+            { h:  38, s: 90, b: 88 }, // EARTH  — amber
+            { h: 185, s: 95, b: 82 }, // WATER  — teal
+            { h:  12, s: 95, b: 90 }, // FIRE   — red-orange
+            { h:  75, s: 80, b: 80 }, // AIR    — yellow-green
+            { h: 280, s: 85, b: 80 }, // AETHER — violet
+            { h: 245, s: 80, b: 78 }, // SHADOW — indigo
+            { h:  50, s: 95, b: 88 }, // RADIANCE— gold
+            { h: 165, s: 75, b: 78 }, // VOID   — seafoam
+        ];
+
+        /**
+         * Returns { h, s, b } (all 0-100/360 range, for HSB colorMode) for a given channel.
+         * @param {number} ch       channel index (0-based)
+         * @param {number} nCh      total channel count
+         * @param {number[]} [avgs] per-channel averages (0-360), required for avgMapped mode
+         */
+        function getChannelColor(ch, nCh, avgs) {
+            if (paletteMode === 'avgMapped' && avgs && avgs[ch] != null) {
+                const v = avgs[ch] || 0;
+                return {
+                    h: (260 + (v / 360) * (45 - 260) + 360) % 360,  // violet→gold ramp
+                    s: 40 + (v / 360) * 50,
+                    b: 40 + (v / 360) * 55
+                };
+            }
+            if (paletteMode === 'harmonious') {
+                const pal = getPalette(harmonicsPaletteKey);
+                if (pal) {
+                    const entry = pal[ch % pal.length];
+                    return { h: entry.h, s: entry.s, b: entry.b };
+                }
+                // Fall through to default if palette not ready
+            }
+            // 'default' mode (or fallback)
+            if (ch < PALETTE_DEFAULT.length) return PALETTE_DEFAULT[ch];
+            // Extra channels beyond 8: use index-based hue spread
+            return { h: (ch / nCh) * 300, s: 75, b: 85 };
+        }
+        // ─────────────────────────────────────────────────────────────────────────────
 
         // --- Dashboard grid layout (for auraDashboard viz) ---
         const DASHBOARD_DEFAULT_LAYOUT = {
@@ -802,7 +949,9 @@
                 vizRegistryLive:    vizRegistry.live.map(v => ({ key: v.key, enabled: v.enabled })),
                 vizRegistryResults: vizRegistry.results.map(v => ({ key: v.key, enabled: v.enabled })),
                 waitingScreenType: waitingScreenType,
-                vizPickerSelectedIdx: vizPickerSelectedIdx
+                vizPickerSelectedIdx: vizPickerSelectedIdx,
+                paletteMode: paletteMode,
+                harmonicsPaletteKey: harmonicsPaletteKey,
             };
             try {
                 localStorage.setItem('visualizerSettings', JSON.stringify(settings));
@@ -887,6 +1036,8 @@
                     }
                     if (settings.waitingScreenType) waitingScreenType = settings.waitingScreenType;
                     if (settings.vizPickerSelectedIdx !== undefined) vizPickerSelectedIdx = parseInt(settings.vizPickerSelectedIdx, 10) || 0;
+                    if (settings.paletteMode) paletteMode = settings.paletteMode;
+                    if (settings.harmonicsPaletteKey) harmonicsPaletteKey = settings.harmonicsPaletteKey;
                     renderDeviceConfigRows();
                     renderVizToggles();
                     rebuildVizSelects();
@@ -1604,7 +1755,7 @@
                 const rh = bh / rows;
                 for (let j = 0; j < rows; j++) {
                     const ry = by + j * rh;
-                    const hue = (j / nCh) * 300;
+                    const { h: hue } = getChannelColor(j, nCh, avgs);
                     const lastVal = data[data.length - 1][j] || 0;
                     if (j > 0) { p.stroke(0,0,18,0.3); p.strokeWeight(0.5); p.line(bx+4,ry,bx+bw-4,ry); }
                     p.noStroke(); p.fill(hue,60,65,0.7);
@@ -1636,7 +1787,7 @@
                 for (let j=0;j<nCh;j++) {
                     const angle=(j/nCh)*p.TWO_PI-p.HALF_PI, avg=avgs[j];
                     const lobeLen=p.map(avg,0,360,0,r*0.92), lobeW=lobeLen*0.38;
-                    const hue=p.map(avg,0,360,260,45), sat=p.map(avg,0,360,40,90), bri=p.map(avg,0,360,40,95);
+                    const { h: hue, s: sat, b: bri } = getChannelColor(j, nCh, avgs);
                     for (let pass=0;pass<3;pass++) {
                         const sc=1+pass*0.35, a=[0.35,0.18,0.07][pass];
                         p.fill(hue,sat*(1-pass*0.2),bri,a);
@@ -1645,7 +1796,8 @@
                 }
                 for (let j=0;j<nCh;j++) {
                     const angle=(j/nCh)*p.TWO_PI-p.HALF_PI, avg=avgs[j];
-                    const tipLen=p.map(avg,0,360,2,r*0.44), hue=p.map(avg,0,360,260,45);
+                    const tipLen=p.map(avg,0,360,2,r*0.44);
+                    const { h: hue } = getChannelColor(j, nCh, avgs);
                     const sw=Math.max(2,r*0.025);
                     const tx=cx+p.cos(angle)*tipLen, ty=cy+p.sin(angle)*tipLen;
                     const sx1=cx+p.cos(angle+p.HALF_PI)*sw, sy1=cy+p.sin(angle+p.HALF_PI)*sw;
@@ -1657,11 +1809,12 @@
                     const rs=(r*0.88)/nCh, aStep=p.TWO_PI/data.length; p.noFill();
                     for (let j=0;j<nCh;j++) {
                         const rr=(j+0.5)*rs; p.strokeWeight(Math.max(0.6,rs*0.3));
+                        const { h: hue } = getChannelColor(j, nCh, avgs);
                         for (let i=0;i<data.length;i++) {
                             const val=data[i][j]||0; if(val<=0) continue;
                             const sa=i*aStep-p.HALF_PI, ea=(i+1)*aStep-p.HALF_PI-p.radians(0.5);
                             if(ea<=sa) continue;
-                            p.stroke((j/nCh)*300,75,88,p.map(val,0,360,0.05,0.5)); p.arc(cx,cy,rr*2,rr*2,sa,ea);
+                            p.stroke(hue,75,88,p.map(val,0,360,0.05,0.5)); p.arc(cx,cy,rr*2,rr*2,sa,ea);
                         }
                     }
                 }
@@ -1676,12 +1829,6 @@
                 const maxR = Math.min(bw, bh) * 0.46;
                 const minR = maxR * 0.06;
                 const n = data.length;
-                const COLORS = [
-                    { hue:  38, sat: 90 }, { hue: 185, sat: 95 },
-                    { hue:  12, sat: 95 }, { hue:  75, sat: 80 },
-                    { hue: 280, sat: 85 }, { hue: 245, sat: 80 },
-                    { hue:  50, sat: 95 }, { hue: 165, sat: 75 },
-                ];
                 // Layer 1: fingerprint rings
                 const NUM_RINGS = 12;
                 p.noFill();
@@ -1694,7 +1841,7 @@
                 const win = Math.max(3, Math.round(n * 0.04));
                 const half = Math.floor(win / 2);
                 for (let ch = 0; ch < Math.min(nCh, 8); ch++) {
-                    const col = COLORS[ch];
+                    const { h: chHue, s: chSat } = getChannelColor(ch, nCh, avgs);
                     const pts = [];
                     for (let i = 0; i < n; i++) {
                         let sum = 0, count = 0;
@@ -1708,8 +1855,8 @@
                     }
                     if (pts.length < 4) continue;
                     const L = pts.length;
-                    p.fill(col.hue, col.sat * 0.7, 80, 0.10);
-                    p.stroke(col.hue, col.sat, 95, 0.65); p.strokeWeight(0.9);
+                    p.fill(chHue, chSat * 0.7, 80, 0.10);
+                    p.stroke(chHue, chSat, 95, 0.65); p.strokeWeight(0.9);
                     p.beginShape();
                     p.curveVertex(pts[L-2][0], pts[L-2][1]);
                     p.curveVertex(pts[L-1][0], pts[L-1][1]);
@@ -1728,7 +1875,7 @@
                 const win = Math.max(5, Math.round(data.length * 0.08));
                 const half = Math.floor(win / 2);
                 for (let j = 0; j < nCh; j++) {
-                    const hue = (j / nCh) * 300;
+                    const { h: hue } = getChannelColor(j, nCh, avgs);
                     p.noFill(); p.stroke(hue, 75, 85, 0.65); p.strokeWeight(0.9);
                     p.beginShape();
                     for (let i = 0; i < data.length; i++) {
@@ -1748,9 +1895,21 @@
                 for (let j=0;j<rows;j++) {
                     const col=j<half?0:1, row=j<half?j:j-half;
                     const rx=bx+col*colW, ry=by+row*rh, rw=colW;
-                    const v=avgs[j]||0, hue=p.map(v,0,360,260,45), sat=p.map(v,0,360,40,90), bri=p.map(v,0,360,40,95);
+                    const v=avgs[j]||0;
+                    const { h: hue, s: sat, b: bri } = getChannelColor(j, nCh, avgs);
                     if (row>0) { p.stroke(0,0,18,0.3); p.strokeWeight(0.5); p.line(rx+3,ry,rx+rw-3,ry); }
                     if (col===1&&row===0) { p.stroke(0,0,18,0.3); p.strokeWeight(0.5); p.line(rx,by+4,rx,by+bh-4); }
+                    // Radial indicator
+                    const arcR = Math.min(rh * 0.34, rw * 0.18);
+                    const arcCX = rx + rw - arcR - 5;
+                    const arcCY = ry + rh * 0.5;
+                    const arcEnd = p.map(v, 0, 360, -p.HALF_PI, -p.HALF_PI + p.TWO_PI);
+                    p.noFill(); p.stroke(0,0,22,0.5); p.strokeWeight(arcR*0.28);
+                    p.arc(arcCX, arcCY, arcR*2, arcR*2, -p.HALF_PI, -p.HALF_PI + p.TWO_PI);
+                    if (v > 0) {
+                        p.stroke(hue, sat, bri, 0.85); p.strokeWeight(arcR*0.28);
+                        p.arc(arcCX, arcCY, arcR*2, arcR*2, -p.HALF_PI, arcEnd);
+                    }
                     p.noStroke(); p.fill(0,0,45,0.6);
                     p.textAlign(p.LEFT,p.TOP); p.textSize(Math.min(rh*0.38,8));
                     p.text(`S${j+1}`, rx+4, ry+2);
@@ -1769,7 +1928,8 @@
                 for (let j=0;j<nCh;j++) {
                     const col=j%cols, row=Math.floor(j/cols);
                     const sx=bx+col*sw+pad, sy=by+row*sh+pad;
-                    const v=avgs[j]||0, hue=p.map(v,0,360,260,45), sat=p.map(v,0,360,40,90), bri=p.map(v,0,360,40,95);
+                    const v=avgs[j]||0;
+                    const { h: hue, s: sat, b: bri } = getChannelColor(j, nCh, avgs);
                     p.noStroke(); p.fill(hue,sat,bri,0.9); p.rect(sx,sy,sw-pad*2,sh-pad*2,3);
                     const tsz=Math.min(sw*0.28,sh*0.28,10);
                     p.fill(0,0,100,0.75); p.textAlign(p.CENTER,p.CENTER); p.textSize(tsz);
@@ -1920,16 +2080,7 @@
             };
 
             const _dp_fortuneTeller = (data, avgs, nCh, bx, by, bw, bh) => {
-                const ELEMENTS = [
-                    { name: 'EARTH',    hue:  32, sat: 55 },
-                    { name: 'WATER',    hue: 210, sat: 70 },
-                    { name: 'FIRE',     hue:  15, sat: 85 },
-                    { name: 'AIR',      hue:  55, sat: 35 },
-                    { name: 'AETHER',   hue: 270, sat: 60 },
-                    { name: 'SHADOW',   hue: 245, sat: 45 },
-                    { name: 'RADIANCE', hue:  45, sat: 80 },
-                    { name: 'VOID',     hue: 190, sat: 28 },
-                ];
+                const DP_FT_NAMES = ['EARTH','WATER','FIRE','AIR','AETHER','SHADOW','RADIANCE','VOID'];
                 const FORTUNES = [
                     ["roots seek deeper soil — rest before you reach",
                      "steady ground holds you — quiet growth unfolds",
@@ -1975,51 +2126,46 @@
                     const row = Math.floor(i / COLS);
                     const cx  = bx + gap + col * (cellW + gap);
                     const cy  = by + gap + row * (cellH + gap);
-                    const el    = ELEMENTS[i];
+                    const { h: elHue, s: elSat } = getChannelColor(i, 8, avgs);
                     const val   = a8[i];
                     const val01 = val / 360;
                     const band  = val < 120 ? 0 : val < 240 ? 1 : 2;
 
                     p.noStroke();
-                    p.fill(el.hue, el.sat * 0.25, 11, 0.9);
+                    p.fill(elHue, elSat * 0.25, 11, 0.9);
                     p.rect(cx, cy, cellW, cellH, 2);
-                    p.fill(el.hue, el.sat, 65, 0.75);
+                    p.fill(elHue, elSat, 65, 0.75);
                     p.rect(cx, cy, accentW, cellH, 1, 0, 0, 1);
 
                     const nameX = cx + pad;
                     const nameY = cy + pad;
                     p.textFont('Georgia, serif');
                     p.textSize(nameSize);
-                    p.fill(el.hue, el.sat - 5, 88, 0.92);
+                    p.fill(elHue, elSat - 5, 88, 0.92);
                     p.textAlign(p.LEFT, p.TOP);
-                    p.text(el.name, nameX, nameY);
+                    p.text(DP_FT_NAMES[i], nameX, nameY);
 
                     const barY    = nameY + nameLineH + 3;
                     const barMaxW = cellW - pad * 2;
-                    p.fill(el.hue, el.sat * 0.3, 22, 0.55);
+                    p.fill(elHue, elSat * 0.3, 22, 0.55);
                     p.rect(nameX, barY, barMaxW, barH, 1);
-                    p.fill(el.hue, el.sat, 80, 0.75);
+                    p.fill(elHue, elSat, 80, 0.75);
                     p.rect(nameX, barY, barMaxW * val01, barH, 1);
 
                     p.textFont('sans-serif');
                     p.textSize(textSz);
-                    p.fill(el.hue, el.sat - 10, 70, 0.7);
+                    p.fill(elHue, elSat - 10, 70, 0.7);
                     p.textAlign(p.LEFT, p.TOP);
                     p.text(FORTUNES[i][band], nameX, barY + barH + 5, cellW - pad * 2);
                 }
             };
 
             const _dp_fortuneOctagram = (data, avgs, nCh, bx, by, bw, bh) => {
-                const ELEMENTS = [
-                    { name: 'EARTH',    hue:  38, sat: 90 },
-                    { name: 'WATER',    hue: 185, sat: 95 },
-                    { name: 'FIRE',     hue:  12, sat: 95 },
-                    { name: 'AIR',      hue:  75, sat: 80 },
-                    { name: 'AETHER',   hue: 280, sat: 85 },
-                    { name: 'SHADOW',   hue: 245, sat: 80 },
-                    { name: 'RADIANCE', hue:  50, sat: 95 },
-                    { name: 'VOID',     hue: 165, sat: 75 },
-                ];
+                const DP_OCT_NAMES = ['EARTH','WATER','FIRE','AIR','AETHER','SHADOW','RADIANCE','VOID'];
+                const ELEMENTS = DP_OCT_NAMES.map((name, i) => {
+                    const { h: hue, s: sat } = getChannelColor(i, 8, avgs);
+                    return { name, hue, sat };
+                });
                 const octCX      = bx + bw / 2;
                 const octCY      = by + bh / 2;
                 const ARM_LENGTH = Math.min(bw, bh) * 0.40;
@@ -2112,14 +2258,17 @@
 
                     const numLines = data[0].length;
                     const spacing  = p.width / (data.length - 1 || 1);
-                    const hueStep  = 360 / (numLines || 1);
 
                     // Moving-average window — ~8% of samples, minimum 5
                     const win = Math.max(5, Math.round(data.length * 0.08));
                     const half = Math.floor(win / 2);
 
+                    // Per-channel averages for palette
+                    const avgs = Array.from({ length: numLines }, (_, j) =>
+                        data.reduce((s, row) => s + (row[j] || 0), 0) / data.length);
+
                     for (let j = 0; j < numLines; j++) {
-                        const lineHue = (j * hueStep) % 360;
+                        const { h: lineHue } = getChannelColor(j, numLines, avgs);
                         p.stroke(lineHue, 85, 90, 1.0);
 
                         p.beginShape();
@@ -2431,12 +2580,9 @@
                     const maxR = Math.min(W, H) * 0.44;
                     const minR = maxR * 0.06;
 
-                    const COLORS = [
-                        { hue:  38, sat: 90 }, { hue: 185, sat: 95 },
-                        { hue:  12, sat: 95 }, { hue:  75, sat: 80 },
-                        { hue: 280, sat: 85 }, { hue: 245, sat: 80 },
-                        { hue:  50, sat: 95 }, { hue: 165, sat: 75 },
-                    ];
+                    // Per-channel averages for palette mode
+                    const avgs = Array.from({ length: nCh }, (_, j) =>
+                        data.reduce((s, row) => s + (row[j] || 0), 0) / n);
 
                     // ── Layer 1: fingerprint / tree rings ────────────────────────
                     const NUM_RINGS = 16;
@@ -2450,14 +2596,11 @@
                     }
 
                     // ── Layer 2: per-sensor polar splats ─────────────────────────
-                    // Angle = time position (0→n maps to full circle)
-                    // Radius = sensor value mapped to [minR, maxR]
-                    // Light smoothing keeps organic shape while reducing noise spikes
                     const win  = Math.max(3, Math.round(n * 0.04));
                     const half = Math.floor(win / 2);
 
                     for (let ch = 0; ch < Math.min(nCh, 8); ch++) {
-                        const col = COLORS[ch];
+                        const { h: chHue, s: chSat } = getChannelColor(ch, nCh, avgs);
 
                         // Build smoothed polar points (circular wrap at boundaries)
                         const pts = [];
@@ -2475,10 +2618,8 @@
                         if (pts.length < 4) continue;
 
                         const L = pts.length;
-                        // Filled interior (very light)
-                        p.fill(col.hue, col.sat * 0.7, 80, 0.10);
-                        // Outline stroke
-                        p.stroke(col.hue, col.sat, 95, 0.65);
+                        p.fill(chHue, chSat * 0.7, 80, 0.10);
+                        p.stroke(chHue, chSat, 95, 0.65);
                         p.strokeWeight(0.9);
 
                         // Closed Catmull-Rom curve with ghost vertices for smooth join
@@ -2913,16 +3054,7 @@
                     if (!fortuneDone) fortuneFrame++;
                     const f = fortuneFrame;
 
-                    const ELEMENTS = [
-                        { name: 'EARTH',    hue:  32, sat: 55 },
-                        { name: 'WATER',    hue: 210, sat: 70 },
-                        { name: 'FIRE',     hue:  15, sat: 85 },
-                        { name: 'AIR',      hue:  55, sat: 35 },
-                        { name: 'AETHER',   hue: 270, sat: 60 },
-                        { name: 'SHADOW',   hue: 245, sat: 45 },
-                        { name: 'RADIANCE', hue:  45, sat: 80 },
-                        { name: 'VOID',     hue: 190, sat: 28 },
-                    ];
+                    const ELEMENT_NAMES_FT = ['EARTH','WATER','FIRE','AIR','AETHER','SHADOW','RADIANCE','VOID'];
                     const FORTUNES = [
                         ["roots seek deeper soil — rest before you reach",
                          "steady ground holds you — quiet growth unfolds",
@@ -2998,18 +3130,18 @@
                         const cx = gap + col * (cellW + gap);
                         const cy = gap + row * (cellH + gap);
 
-                        const el    = ELEMENTS[i];
+                        const { h: elHue, s: elSat } = getChannelColor(i, 8, avgs);
                         const val   = avgs[i];
                         const val01 = val / 360;
                         const band  = val < 120 ? 0 : val < 240 ? 1 : 2;
 
                         // Cell background tinted with element colour
                         p.noStroke();
-                        p.fill(el.hue, el.sat * 0.25, 11, cellA * 0.9);
+                        p.fill(elHue, elSat * 0.25, 11, cellA * 0.9);
                         p.rect(cx, cy, cellW, cellH, 3);
 
                         // Left accent strip
-                        p.fill(el.hue, el.sat, 65, cellA * 0.75);
+                        p.fill(elHue, elSat, 65, cellA * 0.75);
                         p.rect(cx, cy, accentW, cellH, 2, 0, 0, 2);
 
                         // Element name
@@ -3017,22 +3149,22 @@
                         const nameY = cy + pad;
                         p.textFont('Georgia, serif');
                         p.textSize(nameSize);
-                        p.fill(el.hue, el.sat - 5, 88, cellA * 0.92);
+                        p.fill(elHue, elSat - 5, 88, cellA * 0.92);
                         p.textAlign(p.LEFT, p.TOP);
-                        p.text(el.name, nameX, nameY);
+                        p.text(ELEMENT_NAMES_FT[i], nameX, nameY);
 
                         // Intensity bar — track then fill
                         const barY    = nameY + nameLineH + 4;
                         const barMaxW = cellW - pad * 2;
-                        p.fill(el.hue, el.sat * 0.3, 22, cellA * 0.55);
+                        p.fill(elHue, elSat * 0.3, 22, cellA * 0.55);
                         p.rect(nameX, barY, barMaxW, barH, 1);
-                        p.fill(el.hue, el.sat, 80, cellA * 0.75);
+                        p.fill(elHue, elSat, 80, cellA * 0.75);
                         p.rect(nameX, barY, barMaxW * val01, barH, 1);
 
                         // Fortune text
                         p.textFont('sans-serif');
                         p.textSize(textSz);
-                        p.fill(el.hue, el.sat - 10, 70, cellA * 0.7);
+                        p.fill(elHue, elSat - 10, 70, cellA * 0.7);
                         p.textAlign(p.LEFT, p.TOP);
                         p.text(FORTUNES[i][band], nameX, barY + barH + 8, cellW - pad * 2);
                     }
@@ -3050,16 +3182,7 @@
 
                 fortuneOctagram: (data) => {
                     // ─── Fortune Octagram — circle trails + spider web ────────────
-                    const ELEMENTS = [
-                        { name: 'EARTH',    hue:  38, sat: 90 },
-                        { name: 'WATER',    hue: 185, sat: 95 },
-                        { name: 'FIRE',     hue:  12, sat: 95 },
-                        { name: 'AIR',      hue:  75, sat: 80 },
-                        { name: 'AETHER',   hue: 280, sat: 85 },
-                        { name: 'SHADOW',   hue: 245, sat: 80 },
-                        { name: 'RADIANCE', hue:  50, sat: 95 },
-                        { name: 'VOID',     hue: 165, sat: 75 },
-                    ];
+                    const ELEMENT_NAMES = ['EARTH','WATER','FIRE','AIR','AETHER','SHADOW','RADIANCE','VOID'];
 
                     const nCh = data.length > 0 ? data[0].length : 0;
                     const avgs = [];
@@ -3069,6 +3192,11 @@
                         for (let i = 0; i < data.length; i++) sum += (data[i][c] || 0);
                         avgs.push(data.length > 0 ? sum / data.length : 0);
                     }
+                    // Build per-channel color from palette
+                    const ELEMENTS = ELEMENT_NAMES.map((name, i) => {
+                        const { h: hue, s: sat } = getChannelColor(i, 8, avgs);
+                        return { name, hue, sat };
+                    });
 
                     const W = p.width, H = p.height;
                     const octCX = W / 2, octCY = H / 2;
@@ -4436,9 +4564,74 @@
             }
         }
 
+        // ─── Palette UI helpers ──────────────────────────────────────────────────────
+        function initPaletteUI() {
+            const modeRadios     = document.querySelectorAll('input[name="paletteMode"]');
+            const harmonicsRow   = document.getElementById('harmonicsPaletteRow');
+            const harmonicsSelect= document.getElementById('harmonicsPaletteSelect');
+
+            // Populate harmonics preset dropdown
+            harmonicsSelect.innerHTML = Object.entries(HARMONIOUS_PRESETS)
+                .map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
+            harmonicsSelect.value = harmonicsPaletteKey;
+
+            function applyPaletteMode(mode) {
+                paletteMode = mode;
+                harmonicsRow.style.display = mode === 'harmonious' ? 'block' : 'none';
+                updatePaletteSwatch();
+                if (p5Instance && (collectedData.length > 0 || isCollecting)) p5Instance.redraw();
+                saveSettings();
+            }
+
+            modeRadios.forEach(r => {
+                if (r.value === paletteMode) r.checked = true;
+                r.addEventListener('change', () => applyPaletteMode(r.value));
+            });
+
+            harmonicsSelect.addEventListener('change', () => {
+                harmonicsPaletteKey = harmonicsSelect.value;
+                _paletteCache = {}; // force regeneration
+                updatePaletteSwatch();
+                if (p5Instance && (collectedData.length > 0 || isCollecting)) p5Instance.redraw();
+                saveSettings();
+            });
+
+            harmonicsRow.style.display = paletteMode === 'harmonious' ? 'block' : 'none';
+            updatePaletteSwatch();
+
+            // When rampensau module finishes loading, refresh cache + swatch
+            window.addEventListener('rampensauready', () => {
+                _paletteCache = {};
+                updatePaletteSwatch();
+                if (paletteMode === 'harmonious' && p5Instance &&
+                    (collectedData.length > 0 || isCollecting)) p5Instance.redraw();
+            });
+        }
+
+        function updatePaletteSwatch() {
+            const swatch = document.getElementById('paletteSwatch');
+            if (!swatch) return;
+            const nCh = 8;
+            // Build preview using dummy avgs (midpoint 180)
+            const dummyAvgs = Array(nCh).fill(180);
+            let html = '';
+            for (let ch = 0; ch < nCh; ch++) {
+                const c = getChannelColor(ch, nCh, dummyAvgs);
+                // Convert HSB → approximate CSS hsl for swatch display
+                const { h, s, b } = c;
+                // HSB to HSL: l = b*(1 - s/200), sl = s*b / (100 - Math.abs(2*l - 100))
+                const l = b * (1 - s / 200);
+                const sl = (l === 0 || l === 100) ? 0 : (s * b / (100 - Math.abs(2 * l - 100)));
+                html += `<div style="flex:1; background:hsl(${h},${Math.round(sl)}%,${Math.round(l)}%);"></div>`;
+            }
+            swatch.innerHTML = html;
+        }
+        // ─────────────────────────────────────────────────────────────────────────────
+
         // --- Attempt Auto-Connect on Page Load ---
         document.addEventListener('DOMContentLoaded', async () => {
              loadSettings();
+             initPaletteUI();
              await tryAutoConnectOnLoad();
 
              // Add the fullscreen change listener

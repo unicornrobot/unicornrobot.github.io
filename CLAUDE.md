@@ -167,3 +167,27 @@ Channels are configurable in the sidebar (type: `sensor`, `rotary`, or `button`)
 ## Sidebar Live Data Monitor
 
 A **Live Data** section at the bottom of the sidebar shows real-time bar graphs for all incoming serial channels, labelled T0–T7 (touch), B1/B2 (buttons), R1–R3 (rotary). Bars are colour-coded blue→red by value (0–360), updated every 100ms.
+
+
+## Color model from https://meodai.github.io/rampensau/
+
+The four parameters to tune:
+
+Param	Effect	                                                                                          Range
+hStart	Starting hue (0=red, 60=yellow, 120=green, 180=teal, 240=blue, 300=magenta)	0–360
+hCycles	How far the hue rotates across all 8 channels. 0.1=tight cluster, 0.5=half wheel, 1.0=full rainbow	0.0–2.0
+sRange	[min, max] saturation — higher = more vivid, lower = more muted/pastel	    0.0–1.0
+lRange	[min, max] lightness — keep away from 0 (too dark) and 1 (too white)	    0.1–0.9
+Quick mental model:
+
+Small hCycles (0.1–0.3) → analogous palette (colours stay close together)
+Medium hCycles (0.4–0.6) → split-complementary feel
+hCycles: 1.0 → full spectrum rainbow across 8 channels
+Low sRange + high lRange → pastels
+High sRange + mid lRange → vivid/neon
+Just paste new entries before the closing }; on line 515, then reload — they'll appear in the dropdown automatically. 
+e.g. 
+cosmic: {
+        label: 'Cosmic',
+        generate: () => _rampHSB({ hStart: 260, hCycles: 1.1, sRange: [0.55, 0.95], lRange: [0.35, 0.75] })
+        },
