@@ -2072,7 +2072,7 @@
                     p.push(); p.translate(cx,cy); p.rotate((rot/4)*p.TWO_PI);
                     p.beginShape();
                     for(const pt of path){
-                        p.stroke(p.map(Math.sqrt(pt.x*pt.x+pt.y*pt.y),0,actualR,270,45),75,88,rot===0?0.8:0.2);
+                        p.stroke(p.map(Math.sqrt(pt.x*pt.x+pt.y*pt.y),0,actualR,270,45),75,88,0.8);
                         p.strokeWeight(sw); p.curveVertex(pt.x*sc,pt.y*sc);
                     }
                     p.endShape(); p.pop();
@@ -2766,22 +2766,15 @@
                         }
                     };
 
-                    // --- 4-fold symmetry copies (behind, low alpha) ---
-                    if (sigilRevealDone) {
-                        for (let k = 1; k < 4; k++) {
-                            p.push();
-                            p.translate(screenCx, screenCy);
-                            p.rotate(k * p.HALF_PI);
-                            drawSigilPath(drawUpTo, 0.14);
-                            p.pop();
-                        }
+                    // --- 4-fold symmetry (all copies same opacity) ---
+                    const symmetryCount = sigilRevealDone ? 4 : 1;
+                    for (let k = 0; k < symmetryCount; k++) {
+                        p.push();
+                        p.translate(screenCx, screenCy);
+                        p.rotate(k * p.HALF_PI);
+                        drawSigilPath(drawUpTo, 1.0);
+                        p.pop();
                     }
-
-                    // --- Primary sigil ---
-                    p.push();
-                    p.translate(screenCx, screenCy);
-                    drawSigilPath(drawUpTo, 1.0);
-                    p.pop();
 
                     // --- Radial glow bloom ---
                     if (sigilRevealDone) {
