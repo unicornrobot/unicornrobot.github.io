@@ -64,3 +64,16 @@ A + B together would be exceptional for this installation:
 During collection: the Aura Bloom (A) gives immediate sensory feedback — the person sees their colour field responding to their hand in real time
 After collection ends: the Sigil (B) fades in as the "reading result" — a unique geometric form derived from their specific data
 This creates a two-act experience: feeling (live) → meaning (final).
+
+
+Other circular sensor viz ideas you could add:
+
+Lissajous pairs — treat adjacent sensor pairs (0+1, 2+3, etc.) as X/Y deflections from their arm origin, drawing the orbital path they trace over time. Creates figure-8 and knot shapes.
+
+Polar spectrogram / shell — time winds outward as a spiral (angle = sample index, radius grows with time). Each sensor becomes its own spiral strand, colour = value, brightness = intensity. Looks like a nautilus shell.
+
+Phase clock — each sensor drives a hand whose angle = cumulative sum of values modulo 360. Draw the trace of each hand tip over time, overlapping to create clock-face mandalas.
+
+Interference field — treat each sensor as a wave source at its arm tip. Compute sin(dist * freq + phase) across a grid of pixels and shade by amplitude. Produces moiré/interference patterns from the 8 sources. (Requires a pixel shader approach or off-screen buffer.)
+
+Ribbon web — like the spider polygon but with filled ribbons: connect consecutive time-step polygons as a 3D-ish extruded band, getting wider or narrower as values rise and fall.

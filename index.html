@@ -1671,18 +1671,55 @@
             };
 
             const _dp_arcs = (data, avgs, nCh, bx, by, bw, bh) => {
-                if (data.length<2) return;
-                const cx=bx+bw/2, cy=by+bh/2, r=Math.min(bw,bh)*0.46;
-                const rs=(r*0.95)/nCh, aStep=p.TWO_PI/data.length; p.noFill();
-                for (let j=0;j<nCh;j++) {
-                    const rr=(j+0.5)*rs; p.strokeWeight(Math.max(0.8,rs*0.35));
-                    for (let i=0;i<data.length;i++) {
-                        const val=data[i][j]||0; if(val<=0) continue;
-                        const sa=i*aStep-p.HALF_PI, ea=(i+1)*aStep-p.HALF_PI-p.radians(0.4);
-                        if(ea<=sa) continue;
-                        p.stroke((j/nCh)*300,75,88,p.map(val,0,360,0.05,0.55)); p.arc(cx,cy,rr*2,rr*2,sa,ea);
-                    }
+                if (data.length < 4) return;
+                const cx = bx + bw / 2, cy = by + bh / 2;
+                const maxR = Math.min(bw, bh) * 0.46;
+                const minR = maxR * 0.06;
+                const n = data.length;
+                const COLORS = [
+                    { hue:  38, sat: 90 }, { hue: 185, sat: 95 },
+                    { hue:  12, sat: 95 }, { hue:  75, sat: 80 },
+                    { hue: 280, sat: 85 }, { hue: 245, sat: 80 },
+                    { hue:  50, sat: 95 }, { hue: 165, sat: 75 },
+                ];
+                // Layer 1: fingerprint rings
+                const NUM_RINGS = 12;
+                p.noFill();
+                for (let r = 0; r < NUM_RINGS; r++) {
+                    const t = (r + 0.5) / NUM_RINGS;
+                    p.stroke(0, 0, 62, 0.18); p.strokeWeight(0.6);
+                    p.ellipse(cx, cy, (minR + t * (maxR - minR)) * 2, (minR + t * (maxR - minR)) * 2);
                 }
+                // Layer 2: polar splats per sensor
+                const win = Math.max(3, Math.round(n * 0.04));
+                const half = Math.floor(win / 2);
+                for (let ch = 0; ch < Math.min(nCh, 8); ch++) {
+                    const col = COLORS[ch];
+                    const pts = [];
+                    for (let i = 0; i < n; i++) {
+                        let sum = 0, count = 0;
+                        for (let k = i - half; k <= i + half; k++) {
+                            sum += data[((k % n) + n) % n][ch] || 0; count++;
+                        }
+                        const val01 = (sum / count) / 360;
+                        const angle = -p.HALF_PI + (i / n) * p.TWO_PI;
+                        const rr = minR + val01 * (maxR - minR);
+                        pts.push([cx + Math.cos(angle) * rr, cy + Math.sin(angle) * rr]);
+                    }
+                    if (pts.length < 4) continue;
+                    const L = pts.length;
+                    p.fill(col.hue, col.sat * 0.7, 80, 0.10);
+                    p.stroke(col.hue, col.sat, 95, 0.65); p.strokeWeight(0.9);
+                    p.beginShape();
+                    p.curveVertex(pts[L-2][0], pts[L-2][1]);
+                    p.curveVertex(pts[L-1][0], pts[L-1][1]);
+                    for (const [x, y] of pts) p.curveVertex(x, y);
+                    p.curveVertex(pts[0][0], pts[0][1]);
+                    p.curveVertex(pts[1][0], pts[1][1]);
+                    p.endShape(p.CLOSE);
+                }
+                // Centre dot
+                p.noStroke(); p.fill(0, 0, 80, 0.5); p.ellipse(cx, cy, 4, 4);
             };
 
             const _dp_linegraph = (data, avgs, nCh, bx, by, bw, bh) => {
@@ -2381,71 +2418,82 @@
                      p.text(`Heatmap: ${numStreams} streams over ${numTimeSteps} time steps`, p.width / 2, p.height - 5);
                 },
                 concentricArcs: (data) => {
-                    p.background(0, 0, 10); // Dark background
+                    // ─── Concentric Arcs — fingerprint rings + polar splats ───────
                     if (data.length === 0 || data[0].length === 0) return;
 
-                    const numTimeSteps = data.length;
-                    const numStreams = data[0].length;
-                    const centerX = p.width / 2;
-                    const centerY = p.height / 2;
+                    const W = p.width, H = p.height;
+                    const cx = W / 2, cy = H / 2;
+                    p.background(0, 0, 8);
 
-                    const padding = 30; // Space from canvas edge
-                    const maxRadius = (p.min(p.width, p.height) / 2) - padding;
-                    // Space the rings based on the number of sensors
-                    const ringSpacing = numStreams > 1 ? maxRadius / (numStreams -1) : maxRadius; 
-                    const innerRadius = numStreams > 1 ? 0 : maxRadius / 2; // Small inner radius if multiple streams
+                    const nCh = data[0].length;
+                    const n   = data.length;
 
-                    // Calculate the angle step for each time point along the circumference
-                    const angleStep = p.TWO_PI / numTimeSteps;
-                    // Define a small gap angle between segments (optional, set to 0 for no gap)
-                    const angleGap = p.radians(0.5); // Small gap in radians
+                    const maxR = Math.min(W, H) * 0.44;
+                    const minR = maxR * 0.06;
 
+                    const COLORS = [
+                        { hue:  38, sat: 90 }, { hue: 185, sat: 95 },
+                        { hue:  12, sat: 95 }, { hue:  75, sat: 80 },
+                        { hue: 280, sat: 85 }, { hue: 245, sat: 80 },
+                        { hue:  50, sat: 95 }, { hue: 165, sat: 75 },
+                    ];
+
+                    // ── Layer 1: fingerprint / tree rings ────────────────────────
+                    const NUM_RINGS = 16;
                     p.noFill();
-                    // Determine stroke weight based on ring density
-                    const baseStrokeWeight = p.max(1, ringSpacing * 0.5); // Adjust multiplier (0.5) as needed
-                    p.strokeWeight(baseStrokeWeight);
-
-                    // Iterate through sensor streams (rings)
-                    for (let j = 0; j < numStreams; j++) {
-                        // Calculate the radius for the current sensor's ring
-                        const radius = innerRadius + j * ringSpacing;
-                        const diameter = radius * 2;
-
-                        // Iterate through time steps (arc segments)
-                        for (let i = 0; i < numTimeSteps; i++) {
-                            const value = data[i][j] || 0;
-
-                            // --- Condition to draw the arc: value > 0 ---
-                            // (Could be adjusted to a different threshold)
-                            if (value > 0) {
-                                // Map value (0-360) to hue
-                                const hue = p.map(value, 0, 360, 0, 360);
-                                // Use high saturation/brightness for visibility
-                                p.stroke(hue, 90, 95);
-
-                                // Calculate start and end angles for the arc segment
-                                // Subtract HALF_PI to start drawing from the top
-                                const startAngle = (i * angleStep) - p.HALF_PI + (angleGap / 2);
-                                // Ensure end angle doesn't overlap start due to gap
-                                const endAngle = ((i + 1) * angleStep) - p.HALF_PI - (angleGap / 2);
-
-                                // Draw the arc only if endAngle > startAngle (handles the gap)
-                                if (endAngle > startAngle) {
-                                    p.arc(centerX, centerY, diameter, diameter, startAngle, endAngle);
-                                }
-                            }
-                            // --- If value <= 0, do nothing, leaving a gap ---
-                        }
+                    for (let r = 0; r < NUM_RINGS; r++) {
+                        const t      = (r + 0.5) / NUM_RINGS;
+                        const radius = minR + t * (maxR - minR);
+                        p.stroke(0, 0, 62, 0.16);
+                        p.strokeWeight(0.6);
+                        p.ellipse(cx, cy, radius * 2, radius * 2);
                     }
-                     // Optional: Add a center marker or labels if needed
-                     p.fill(0, 0, 80); // White-ish
-                     p.noStroke();
-                     p.ellipse(centerX, centerY, 5, 5);
-                     // Add text label
-                     p.textAlign(p.CENTER, p.BOTTOM);
-                     p.textSize(12);
-                     p.text(`Concentric Arcs: ${numStreams} sensors over ${numTimeSteps} time steps`, p.width/2, p.height - 5);
 
+                    // ── Layer 2: per-sensor polar splats ─────────────────────────
+                    // Angle = time position (0→n maps to full circle)
+                    // Radius = sensor value mapped to [minR, maxR]
+                    // Light smoothing keeps organic shape while reducing noise spikes
+                    const win  = Math.max(3, Math.round(n * 0.04));
+                    const half = Math.floor(win / 2);
+
+                    for (let ch = 0; ch < Math.min(nCh, 8); ch++) {
+                        const col = COLORS[ch];
+
+                        // Build smoothed polar points (circular wrap at boundaries)
+                        const pts = [];
+                        for (let i = 0; i < n; i++) {
+                            let sum = 0, count = 0;
+                            for (let k = i - half; k <= i + half; k++) {
+                                sum += data[((k % n) + n) % n][ch] || 0;
+                                count++;
+                            }
+                            const val01 = (sum / count) / 360;
+                            const angle = -p.HALF_PI + (i / n) * p.TWO_PI;
+                            const r     = minR + val01 * (maxR - minR);
+                            pts.push([cx + Math.cos(angle) * r, cy + Math.sin(angle) * r]);
+                        }
+                        if (pts.length < 4) continue;
+
+                        const L = pts.length;
+                        // Filled interior (very light)
+                        p.fill(col.hue, col.sat * 0.7, 80, 0.10);
+                        // Outline stroke
+                        p.stroke(col.hue, col.sat, 95, 0.65);
+                        p.strokeWeight(0.9);
+
+                        // Closed Catmull-Rom curve with ghost vertices for smooth join
+                        p.beginShape();
+                        p.curveVertex(pts[L - 2][0], pts[L - 2][1]); // ghost
+                        p.curveVertex(pts[L - 1][0], pts[L - 1][1]); // ghost
+                        for (const [x, y] of pts) p.curveVertex(x, y);
+                        p.curveVertex(pts[0][0], pts[0][1]);          // ghost
+                        p.curveVertex(pts[1][0], pts[1][1]);          // ghost
+                        p.endShape(p.CLOSE);
+                    }
+
+                    // Centre dot
+                    p.noStroke(); p.fill(0, 0, 80, 0.5);
+                    p.ellipse(cx, cy, 5, 5);
                 }, // End concentricArcs
 
                 auraDashboard: (data) => {
