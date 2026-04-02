@@ -427,6 +427,7 @@
         let overlayCurrentY = -1; // Current drawing Y position for overlay (-1 indicates reset needed)
         let isDebugMode = false; // Flag for debug mode state - NEW
         let autoSaveResults = true; // Whether to save a snapshot after each reading
+        let pendingResultSave = false; // True only after a real collection ends — gates all auto-saves
         let capturingScreenshot = false; // Suppresses overlay UI (timers etc.) during screen grab
         let originalCanvasHeight = 400; // Store the original height - NEW
 
@@ -798,6 +799,8 @@
 
         async function saveCurrentResult() {
             if (!autoSaveResults || !p5Instance || collectedData.length === 0) return;
+            if (!pendingResultSave) return; // Only save after a real collection, not manual viz switches
+            pendingResultSave = false;
             try {
                 // Compute per-channel averages
                 const nCh  = collectedData[0].length;
@@ -1066,6 +1069,7 @@
 
         function _applyVizSwitch() {
             if (!p5Instance || collectedData.length === 0 || isCollecting) return;
+            pendingResultSave = false; // Manual viz switch — suppress any pending auto-save
             // Reset animation state so animated vizzes replay cleanly
             if (p5Instance.sketchInstanceVariables) {
                 p5Instance.sketchInstanceVariables.resetSigil?.();
@@ -1618,6 +1622,9 @@
                 if (p5Instance.sketchInstanceVariables) {
                     p5Instance.sketchInstanceVariables.resetDissolve();
                 }
+                // Mark that a real collection just ended — allows one auto-save
+                pendingResultSave = true;
+
                 // Animated reveals — keep loop alive; they self-pause when done
                 if (currentVisualization === 'sigilResult') {
                     p5Instance.loop();
