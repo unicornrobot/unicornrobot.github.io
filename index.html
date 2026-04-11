@@ -306,6 +306,24 @@
                 </div>
             </div>
 
+            <!-- Live Scene Layout Config (shown when liveScene is selected) -->
+            <div id="liveSceneConfigSection" style="display:none;">
+                <div class="sidebar-section-title">Live Scene Layout</div>
+                <div style="display:flex; gap:4px; margin-bottom:8px;">
+                    <button id="lsEditToggle" style="flex:1; font-size:10px; padding:3px 4px; background:#1a1a1a; color:#555; border-color:#2a2a2a;" title="Toggle drag/resize handles on canvas">Edit</button>
+                </div>
+                <div style="font-size:9px; color:#444; margin-bottom:4px;">Drag · resize corner · Shift=snap · F=fullscreen</div>
+                <div id="lsFreeTileList" style="max-height:240px; overflow-y:auto; margin-bottom:6px;"></div>
+                <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:#555; margin-bottom:6px; cursor:pointer;">
+                    <input type="checkbox" id="lsPanelBgCheck" style="margin:0;">
+                    Circle background
+                </label>
+                <div style="display:flex; gap:6px;">
+                    <button id="lsAddTileBtn" style="flex:1;">+ Panel</button>
+                    <button id="lsResetBtn" style="flex:1; background:#1a1a1a; color:#555; border-color:#2a2a2a;">Reset</button>
+                </div>
+            </div>
+
             <!-- Overlay controls (shown only for Woven Tapestry Overlay) -->
             <div id="overlayControlsContainer" style="display:none;">
                 <div class="sidebar-section-title">Overlay Settings</div>
@@ -634,6 +652,37 @@
         let dashboardEditMode = false; // true = show drag/resize handles on canvas
         // Stub — overwritten after DOMContentLoaded wires up the real function
         let renderDashFreeTileList = () => {};
+
+        // --- Live Scene Layout (free-placement circular panels for the reading screen) ---
+        const LIVE_SCENE_DEFAULT_LAYOUT = {
+            panelBg: false,
+            tiles: [
+                { id: 'ls0', fx: 0.08, fy: 0.12, fsize: 0.28, type: 'ch_ring',     channel: 0 },
+                { id: 'ls1', fx: 0.38, fy: 0.04, fsize: 0.22, type: 'ch_pulse',    channel: 1 },
+                { id: 'ls2', fx: 0.62, fy: 0.04, fsize: 0.22, type: 'ch_iris',     channel: 2 },
+                { id: 'ls3', fx: 0.76, fy: 0.12, fsize: 0.28, type: 'ch_radial',   channel: 3 },
+                { id: 'ls4', fx: 0.08, fy: 0.58, fsize: 0.28, type: 'ch_ripple',   channel: 4 },
+                { id: 'ls5', fx: 0.38, fy: 0.66, fsize: 0.22, type: 'ch_orb',      channel: 5 },
+                { id: 'ls6', fx: 0.62, fy: 0.66, fsize: 0.22, type: 'ch_arc_fill', channel: 6 },
+                { id: 'ls7', fx: 0.76, fy: 0.58, fsize: 0.28, type: 'ch_ring',     channel: 7 },
+                { id: 'ls8', fx: 0.36, fy: 0.28, fsize: 0.30, type: 'ch_orb',      channel: -1 },
+            ]
+        };
+        let liveSceneLayout = JSON.parse(JSON.stringify(LIVE_SCENE_DEFAULT_LAYOUT));
+        let liveSceneEditMode = false;
+        let renderLiveSceneTileList = () => {};
+
+        const LIVE_SCENE_PANEL_TYPES = {
+            'ch_ring':     'Ring',
+            'ch_pulse':    'Pulse',
+            'ch_iris':     'Iris',
+            'ch_radial':   'Radial Spokes',
+            'ch_ripple':   'Ripple',
+            'ch_orb':      'Orb',
+            'ch_arc_fill': 'Arc Fill',
+            'empty':       'Empty',
+        };
+
         const DASHBOARD_PANEL_TYPES = {
             'sparklines':  'Sparklines',
             'sigil':       'Aura Sigil',
@@ -663,6 +712,7 @@
                 { key: 'wovenTapestry',          label: 'Woven Tapestry',             enabled: false },
                 { key: 'wovenTapestryOverlay',   label: 'Woven Tapestry (Overlay)',   enabled: false },
                 { key: 'none',                   label: 'None',                       enabled: true  },
+                { key: 'liveScene',              label: 'Live Scene',                 enabled: true  },
             ],
             results: [
                 { key: 'auraDashboard',    label: 'Aura Dashboard',    enabled: true  },
@@ -972,6 +1022,7 @@
                 deviceConfig: deviceConfig,
                 autoSaveResults: autoSaveResults,
                 dashboardLayout: dashboardLayout,
+                liveSceneLayout: liveSceneLayout,
                 // Save enabled state only (keys are stable, order may change)
                 vizRegistryLive:    vizRegistry.live.map(v => ({ key: v.key, enabled: v.enabled })),
                 vizRegistryResults: vizRegistry.results.map(v => ({ key: v.key, enabled: v.enabled })),
@@ -1069,6 +1120,16 @@
                             if (t.fsize === undefined) t.fsize = 0.35;
                         });
                     }
+                    if (settings.liveSceneLayout && settings.liveSceneLayout.tiles) {
+                        liveSceneLayout = settings.liveSceneLayout;
+                        if (liveSceneLayout.panelBg === undefined) liveSceneLayout.panelBg = false;
+                        liveSceneLayout.tiles.forEach((t, i) => {
+                            if (t.fx === undefined) t.fx = 0.05 + (i % 4) * 0.24;
+                            if (t.fy === undefined) t.fy = 0.05 + Math.floor(i / 4) * 0.5;
+                            if (t.fsize === undefined) t.fsize = 0.22;
+                            if (t.channel === undefined) t.channel = -1;
+                        });
+                    }
                     if (settings.waitingScreenType) waitingScreenType = settings.waitingScreenType;
                     if (settings.vizPickerSelectedIdx !== undefined) vizPickerSelectedIdx = parseInt(settings.vizPickerSelectedIdx, 10) || 0;
                     if (settings.paletteMode) paletteMode = settings.paletteMode;
@@ -1163,6 +1224,11 @@
             const dashSection = document.getElementById('dashboardConfigSection');
             if (dashSection) {
                 dashSection.style.display = vizSelect.value === 'auraDashboard' ? 'block' : 'none';
+            }
+            // Show live scene config only when liveScene is selected
+            const lsSection = document.getElementById('liveSceneConfigSection');
+            if (lsSection) {
+                lsSection.style.display = liveVizSelect.value === 'liveScene' ? 'block' : 'none';
             }
 
             // Show trigger sensor input only when installation mode is on
@@ -2286,6 +2352,217 @@
                 }
             };
             // ─────────────────────────────────────────────────────────────────────────
+            // ── Live Scene: circular single-channel panel renderers ───────────────────
+            // Each takes: (val 0-360, history[], ch index, nCh, cx, cy, r)
+            // val      = current live value for this channel (or avg of all)
+            // history  = collectedData column for this channel (array of numbers)
+            // ch       = channel index (-1 = all channels combined)
+            // cx,cy,r  = centre and radius of the circle to fill
+
+            // ch_ring: concentric colour rings that expand with value
+            const _ls_ring = (val, history, ch, nCh, cx, cy, r) => {
+                const norm = p.constrain(val / 360, 0, 1);
+                const { h: hue, s: sat, b: bri } = getChannelColor(Math.max(ch, 0), nCh, [val]);
+                const t = p.frameCount;
+                const N = 6;
+                for (let i = N; i >= 0; i--) {
+                    const frac = i / N;
+                    const rr = r * 0.12 + r * 0.86 * frac * norm;
+                    const pulse = 1 + p.sin(t * 0.07 - i * 0.6) * 0.04;
+                    p.noFill();
+                    p.stroke(hue, sat * (0.4 + frac * 0.6), bri * (0.3 + frac * 0.7),
+                             0.15 + frac * 0.55);
+                    p.strokeWeight(r * 0.04 * (1 - frac * 0.5));
+                    p.ellipse(cx, cy, rr * 2 * pulse, rr * 2 * pulse);
+                }
+                // Centre dot
+                p.noStroke(); p.fill(hue, sat * 0.5, bri, 0.6);
+                p.ellipse(cx, cy, r * 0.12, r * 0.12);
+            };
+
+            // ch_pulse: solid filled circle that breathes with value
+            const _ls_pulse = (val, history, ch, nCh, cx, cy, r) => {
+                const norm = p.constrain(val / 360, 0, 1);
+                const { h: hue, s: sat, b: bri } = getChannelColor(Math.max(ch, 0), nCh, [val]);
+                const t = p.frameCount;
+                const breath = 1 + p.sin(t * 0.06 * (0.5 + norm)) * 0.06;
+                // Outer glow
+                for (let g = 3; g >= 0; g--) {
+                    const gr = r * (0.7 + norm * 0.28) * breath * (1 + g * 0.18);
+                    p.noStroke(); p.fill(hue, sat * 0.7, bri, 0.04 * (4 - g));
+                    p.ellipse(cx, cy, gr * 2, gr * 2);
+                }
+                // Core
+                const cr = r * (0.25 + norm * 0.62) * breath;
+                p.noStroke(); p.fill(hue, sat, bri, 0.85);
+                p.ellipse(cx, cy, cr * 2, cr * 2);
+                // Ring edge
+                p.noFill(); p.stroke(hue, sat * 0.6, 100, 0.3);
+                p.strokeWeight(1); p.ellipse(cx, cy, r * 1.85, r * 1.85);
+            };
+
+            // ch_iris: petal aperture — petals close/open with value
+            const _ls_iris = (val, history, ch, nCh, cx, cy, r) => {
+                const norm = p.constrain(val / 360, 0, 1);
+                const { h: hue, s: sat, b: bri } = getChannelColor(Math.max(ch, 0), nCh, [val]);
+                const t = p.frameCount;
+                const N = 8;
+                const rot = t * 0.008;
+                p.noStroke();
+                for (let i = 0; i < N; i++) {
+                    const a = (i / N) * p.TWO_PI + rot;
+                    const petalLen = r * (0.15 + norm * 0.72);
+                    const petalW   = petalLen * (0.35 + norm * 0.2);
+                    p.fill(hue, sat, bri, 0.55 + norm * 0.3);
+                    p.push();
+                    p.translate(cx, cy); p.rotate(a);
+                    p.ellipse(petalLen * 0.5, 0, petalLen, petalW);
+                    p.pop();
+                }
+                // Dark centre
+                p.fill(0, 0, 5, 0.9);
+                p.ellipse(cx, cy, r * (0.08 + (1 - norm) * 0.28) * 2, r * (0.08 + (1 - norm) * 0.28) * 2);
+            };
+
+            // ch_radial: radial spokes — length = value
+            const _ls_radial = (val, history, ch, nCh, cx, cy, r) => {
+                const norm = p.constrain(val / 360, 0, 1);
+                const { h: hue, s: sat, b: bri } = getChannelColor(Math.max(ch, 0), nCh, [val]);
+                const t = p.frameCount;
+                const N = 24;
+                const rot = t * 0.004;
+                for (let i = 0; i < N; i++) {
+                    const a = (i / N) * p.TWO_PI + rot;
+                    // Modulate spoke length with noise-like sin combo
+                    const mod = 0.6 + p.sin(i * 1.3 + t * 0.05) * 0.2 + p.sin(i * 2.7 - t * 0.03) * 0.2;
+                    const len = r * 0.15 + r * 0.72 * norm * mod;
+                    const alpha = 0.2 + norm * 0.65;
+                    p.stroke(hue, sat, bri, alpha);
+                    p.strokeWeight(r * 0.025);
+                    p.line(cx + p.cos(a) * r * 0.08, cy + p.sin(a) * r * 0.08,
+                           cx + p.cos(a) * len, cy + p.sin(a) * len);
+                }
+                p.noStroke(); p.fill(hue, sat * 0.6, bri, 0.5);
+                p.ellipse(cx, cy, r * 0.18, r * 0.18);
+            };
+
+            // ch_ripple: wave rings emanating from centre, speed = value
+            const _ls_ripple = (val, history, ch, nCh, cx, cy, r) => {
+                const norm = p.constrain(val / 360, 0, 1);
+                const { h: hue, s: sat, b: bri } = getChannelColor(Math.max(ch, 0), nCh, [val]);
+                const t = p.frameCount;
+                const speed = 0.3 + norm * 2.5;
+                const N = 5;
+                p.noFill();
+                for (let i = 0; i < N; i++) {
+                    const phase = ((t * speed * 0.02 + i / N) % 1);
+                    const rr = phase * r * 0.92;
+                    const alpha = (1 - phase) * (0.15 + norm * 0.55);
+                    p.stroke(hue, sat, bri, alpha);
+                    p.strokeWeight(r * 0.03 * (1 - phase));
+                    p.ellipse(cx, cy, rr * 2, rr * 2);
+                }
+                // Centre bright dot
+                p.noStroke(); p.fill(hue, sat * 0.8, 100, 0.7);
+                p.ellipse(cx, cy, r * 0.1, r * 0.1);
+            };
+
+            // ch_orb: glowing sphere with shimmer bands
+            const _ls_orb = (val, history, ch, nCh, cx, cy, r) => {
+                const norm = p.constrain(val / 360, 0, 1);
+                const { h: hue, s: sat, b: bri } = getChannelColor(Math.max(ch, 0), nCh, [val]);
+                const t = p.frameCount;
+                // Body gradient (layered ellipses from outside in)
+                const steps = 12;
+                for (let i = steps; i >= 0; i--) {
+                    const frac = i / steps;
+                    const rr = r * 0.88 * frac;
+                    const lum = bri * (0.2 + frac * 0.8 + p.sin(t * 0.05 + frac * 4) * 0.05 * norm);
+                    const a = 0.08 + frac * 0.09;
+                    p.noStroke(); p.fill(hue, sat * (0.3 + frac * 0.7), p.constrain(lum, 0, 100), a);
+                    p.ellipse(cx, cy, rr * 2, rr * 2);
+                }
+                // Specular highlight
+                p.noStroke(); p.fill(0, 0, 100, 0.12 + norm * 0.1);
+                p.ellipse(cx - r * 0.22, cy - r * 0.22, r * 0.35, r * 0.28);
+                // Equator band
+                p.noFill(); p.stroke(hue, sat * 0.4, 100, 0.08 + norm * 0.12);
+                p.strokeWeight(r * 0.02);
+                p.ellipse(cx, cy, r * 1.6, r * 0.35);
+            };
+
+            // ch_arc_fill: single arc that fills clockwise by value, with trail history
+            const _ls_arc_fill = (val, history, ch, nCh, cx, cy, r) => {
+                const norm = p.constrain(val / 360, 0, 1);
+                const { h: hue, s: sat, b: bri } = getChannelColor(Math.max(ch, 0), nCh, [val]);
+                const t = p.frameCount;
+                // History arc rings (faded)
+                if (history && history.length > 1) {
+                    const stride = Math.max(1, Math.floor(history.length / 8));
+                    for (let i = 0; i < history.length; i += stride) {
+                        const hv = p.constrain((history[i] || 0) / 360, 0, 1);
+                        const rr = r * (0.45 + (i / history.length) * 0.42);
+                        p.noFill(); p.stroke(hue, sat * 0.5, bri * 0.6, 0.12);
+                        p.strokeWeight(r * 0.025);
+                        if (hv > 0.01)
+                            p.arc(cx, cy, rr*2, rr*2, -p.HALF_PI, -p.HALF_PI + p.TWO_PI * hv);
+                    }
+                }
+                // Track ring
+                p.noFill(); p.stroke(0, 0, 25, 0.4); p.strokeWeight(r * 0.06);
+                p.ellipse(cx, cy, r * 1.6, r * 1.6);
+                // Live fill arc
+                if (norm > 0.005) {
+                    p.stroke(hue, sat, bri, 0.9); p.strokeWeight(r * 0.07);
+                    p.arc(cx, cy, r * 1.6, r * 1.6, -p.HALF_PI, -p.HALF_PI + p.TWO_PI * norm);
+                }
+                // Value text
+                p.noStroke(); p.fill(hue, sat * 0.6, bri, 0.8);
+                p.textAlign(p.CENTER, p.CENTER); p.textSize(r * 0.28); p.textFont('sans-serif');
+                p.text(Math.round(val), cx, cy);
+            };
+
+            // Dispatcher: renders one live scene panel clipped to a circle
+            const liveScenePanelRender = (tile, liveData, cx, cy, r) => {
+                const ch = tile.channel; // -1 = combined
+                // Gather value: single channel or average of all
+                let val, history;
+                if (ch >= 0 && liveData && liveData[ch] != null) {
+                    val = liveData[ch];
+                    history = collectedData.map(row => row[ch] || 0);
+                } else {
+                    // All channels: use average
+                    const vals = liveData ? liveData.filter(v => v != null) : [];
+                    val = vals.length ? vals.reduce((s,v) => s+v, 0) / vals.length : 0;
+                    history = collectedData.map(row =>
+                        row.reduce((s,v) => s+(v||0), 0) / Math.max(1, row.length)
+                    );
+                }
+                const nCh = Math.max(8, liveData ? liveData.length : 8);
+                const chIdx = ch >= 0 ? ch : 0;
+
+                // Clip to circle
+                p.drawingContext.save();
+                p.drawingContext.beginPath();
+                p.drawingContext.arc(cx, cy, r, 0, Math.PI * 2);
+                p.drawingContext.clip();
+
+                try {
+                    switch (tile.type) {
+                        case 'ch_ring':     _ls_ring(val, history, chIdx, nCh, cx, cy, r);     break;
+                        case 'ch_pulse':    _ls_pulse(val, history, chIdx, nCh, cx, cy, r);    break;
+                        case 'ch_iris':     _ls_iris(val, history, chIdx, nCh, cx, cy, r);     break;
+                        case 'ch_radial':   _ls_radial(val, history, chIdx, nCh, cx, cy, r);   break;
+                        case 'ch_ripple':   _ls_ripple(val, history, chIdx, nCh, cx, cy, r);   break;
+                        case 'ch_orb':      _ls_orb(val, history, chIdx, nCh, cx, cy, r);      break;
+                        case 'ch_arc_fill': _ls_arc_fill(val, history, chIdx, nCh, cx, cy, r); break;
+                    }
+                } catch(e) { console.warn('liveScene panel error:', tile.type, e); }
+
+                p.drawingContext.restore();
+                p.blendMode(p.BLEND); p.colorMode(p.HSB, 360, 100, 100, 1.0); p.angleMode(p.RADIANS);
+            };
+            // ── End live scene panel renderers ────────────────────────────────────────
 
             // Visualization functions are defined within the sketch scope
             const visualizations = {
@@ -3412,109 +3689,134 @@
                  // --- End Fullscreen Toggle ---
             };
 
-            // ── Dashboard free-placement drag/resize state ──────────────────────
-            p._dashDragTile   = null;  // tile being dragged
-            p._dashResizeTile = null;  // tile being resized
-            p._dashDeleteTile = null;  // tile to delete after mouseReleased
-            p._dashDragOffX   = 0;
-            p._dashDragOffY   = 0;
-            p._dashResizeStartMx = 0;
-            p._dashResizeStartSize = 0;
+            // ── Dashboard + LiveScene free-placement drag/resize state ───────────
+            p._dashDragTile = null; p._dashResizeTile = null; p._dashDeleteTile = null;
+            p._dashDragOffX = 0; p._dashDragOffY = 0;
+            p._dashResizeStartMx = 0; p._dashResizeStartSize = 0;
 
-            function _dashHitTest(mx, my) {
-                // Returns { tile, zone } where zone = 'drag' | 'resize' | 'delete' | null
-                if (!dashboardEditMode || dashboardLayout.mode !== 'free') return null;
-                if (currentVisualization !== 'auraDashboard') return null;
-                const W = p.width, H = p.height;
-                const hw = 8; // resize handle size
-                // Iterate in reverse so topmost (last-rendered) tile wins
-                for (let i = dashboardLayout.tiles.length - 1; i >= 0; i--) {
-                    const tile = dashboardLayout.tiles[i];
-                    const bx = tile.fx * W;
-                    const by = tile.fy * H;
+            // Shared helper: hit-test a set of free tiles, returns { tile, zone }
+            function _freeTileHit(mx, my, tiles, W, H) {
+                const hw = 8;
+                for (let i = tiles.length - 1; i >= 0; i--) {
+                    const tile = tiles[i];
+                    const bx = tile.fx * W, by = tile.fy * H;
                     const bsize = tile.fsize * Math.min(W, H);
                     if (mx < bx || mx > bx + bsize || my < by || my > by + bsize) continue;
-                    // Delete zone: top-right 14×14
                     if (mx >= bx + bsize - 14 && my <= by + 14) return { tile, zone: 'delete' };
-                    // Resize zone: bottom-right hw×hw corner
                     if (mx >= bx + bsize - hw && my >= by + bsize - hw) return { tile, zone: 'resize' };
-                    // Drag zone: top label bar (first 14px height) or anywhere else
                     return { tile, zone: 'drag' };
                 }
                 return null;
             }
 
-            p.mousePressed = () => {
-                if (!dashboardEditMode || dashboardLayout.mode !== 'free') return;
-                if (currentVisualization !== 'auraDashboard') return;
-                const hit = _dashHitTest(p.mouseX, p.mouseY);
-                if (!hit) return;
-                if (hit.zone === 'delete') {
-                    p._dashDeleteTile = hit.tile;
-                } else if (hit.zone === 'resize') {
-                    p._dashResizeTile = hit.tile;
-                    p._dashResizeStartMx   = p.mouseX;
-                    p._dashResizeStartSize = hit.tile.fsize;
-                } else {
-                    p._dashDragTile = hit.tile;
-                    const W = p.width, H = p.height;
-                    p._dashDragOffX = p.mouseX - hit.tile.fx * W;
-                    p._dashDragOffY = p.mouseY - hit.tile.fy * H;
+            p.mouseDragged = () => {
+                const W = p.width, H = p.height;
+                // ── Dashboard free drag ──────────────────────────────────────────
+                if (dashboardEditMode && dashboardLayout.mode === 'free') {
+                    if (p._dashDragTile) {
+                        let nx = (p.mouseX - p._dashDragOffX) / W;
+                        let ny = (p.mouseY - p._dashDragOffY) / H;
+                        if (p.keyIsDown(p.SHIFT)) { nx = Math.round(nx/0.05)*0.05; ny = Math.round(ny/0.05)*0.05; }
+                        p._dashDragTile.fx = p.constrain(nx, 0, 1 - p._dashDragTile.fsize * Math.min(W,H) / W);
+                        p._dashDragTile.fy = p.constrain(ny, 0, 1 - p._dashDragTile.fsize * Math.min(W,H) / H);
+                        saveSettings(); p.redraw();
+                    } else if (p._dashResizeTile) {
+                        const delta = (p.mouseX - p._dashResizeStartMx) / Math.min(W, H);
+                        let ns = p.constrain(p._dashResizeStartSize + delta, 0.05, 1.0);
+                        if (p.keyIsDown(p.SHIFT)) ns = Math.round(ns / 0.05) * 0.05;
+                        p._dashResizeTile.fsize = ns;
+                        saveSettings(); p.redraw();
+                    }
+                }
+                // ── Live scene drag ──────────────────────────────────────────────
+                if (liveSceneEditMode && currentLiveVisualization === 'liveScene') {
+                    if (p._lsDragTile) {
+                        let nx = (p.mouseX - p._lsDragOffX) / W;
+                        let ny = (p.mouseY - p._lsDragOffY) / H;
+                        if (p.keyIsDown(p.SHIFT)) { nx = Math.round(nx/0.05)*0.05; ny = Math.round(ny/0.05)*0.05; }
+                        p._lsDragTile.fx = p.constrain(nx, 0, 1 - p._lsDragTile.fsize * Math.min(W,H) / W);
+                        p._lsDragTile.fy = p.constrain(ny, 0, 1 - p._lsDragTile.fsize * Math.min(W,H) / H);
+                        saveSettings(); p.redraw();
+                    } else if (p._lsResizeTile) {
+                        const delta = (p.mouseX - p._lsResizeStartMx) / Math.min(W, H);
+                        let ns = p.constrain(p._lsResizeStartSize + delta, 0.05, 1.0);
+                        if (p.keyIsDown(p.SHIFT)) ns = Math.round(ns / 0.05) * 0.05;
+                        p._lsResizeTile.fsize = ns;
+                        saveSettings(); p.redraw();
+                    }
                 }
             };
 
-            p.mouseDragged = () => {
-                if (!dashboardEditMode || dashboardLayout.mode !== 'free') return;
+            p.mousePressed = () => {
                 const W = p.width, H = p.height;
-                if (p._dashDragTile) {
-                    let nx = (p.mouseX - p._dashDragOffX) / W;
-                    let ny = (p.mouseY - p._dashDragOffY) / H;
-                    if (p.keyIsDown(p.SHIFT)) {
-                        // Snap to 0.05 grid
-                        nx = Math.round(nx / 0.05) * 0.05;
-                        ny = Math.round(ny / 0.05) * 0.05;
+                // ── Dashboard ───────────────────────────────────────────────────
+                if (dashboardEditMode && dashboardLayout.mode === 'free' && currentVisualization === 'auraDashboard') {
+                    const hit = _freeTileHit(p.mouseX, p.mouseY, dashboardLayout.tiles, W, H);
+                    if (hit) {
+                        if (hit.zone === 'delete') { p._dashDeleteTile = hit.tile; }
+                        else if (hit.zone === 'resize') {
+                            p._dashResizeTile = hit.tile;
+                            p._dashResizeStartMx = p.mouseX; p._dashResizeStartSize = hit.tile.fsize;
+                        } else {
+                            p._dashDragTile = hit.tile;
+                            p._dashDragOffX = p.mouseX - hit.tile.fx * W;
+                            p._dashDragOffY = p.mouseY - hit.tile.fy * H;
+                        }
                     }
-                    p._dashDragTile.fx = p.constrain(nx, 0, 1 - p._dashDragTile.fsize * Math.min(W,H) / W);
-                    p._dashDragTile.fy = p.constrain(ny, 0, 1 - p._dashDragTile.fsize * Math.min(W,H) / H);
-                    saveSettings(); p.redraw();
-                } else if (p._dashResizeTile) {
-                    const delta = (p.mouseX - p._dashResizeStartMx) / Math.min(W, H);
-                    let ns = p.constrain(p._dashResizeStartSize + delta, 0.05, 1.0);
-                    if (p.keyIsDown(p.SHIFT)) ns = Math.round(ns / 0.05) * 0.05;
-                    p._dashResizeTile.fsize = ns;
-                    saveSettings(); p.redraw();
+                }
+                // ── Live scene ──────────────────────────────────────────────────
+                if (liveSceneEditMode && currentLiveVisualization === 'liveScene') {
+                    const hit = _freeTileHit(p.mouseX, p.mouseY, liveSceneLayout.tiles, W, H);
+                    if (hit) {
+                        if (hit.zone === 'delete') { p._lsDeleteTile = hit.tile; }
+                        else if (hit.zone === 'resize') {
+                            p._lsResizeTile = hit.tile;
+                            p._lsResizeStartMx = p.mouseX; p._lsResizeStartSize = hit.tile.fsize;
+                        } else {
+                            p._lsDragTile = hit.tile;
+                            p._lsDragOffX = p.mouseX - hit.tile.fx * W;
+                            p._lsDragOffY = p.mouseY - hit.tile.fy * H;
+                        }
+                    }
                 }
             };
 
             p.mouseReleased = () => {
-                // Only delete if this was a clean click (no drag/resize was active)
+                // Dashboard delete
                 if (p._dashDeleteTile && !p._dashDragTile && !p._dashResizeTile) {
                     const idx = dashboardLayout.tiles.indexOf(p._dashDeleteTile);
-                    if (idx !== -1) {
-                        dashboardLayout.tiles.splice(idx, 1);
-                        saveSettings(); p.redraw();
-                        renderDashFreeTileList();
-                    }
+                    if (idx !== -1) { dashboardLayout.tiles.splice(idx, 1); saveSettings(); p.redraw(); renderDashFreeTileList(); }
                 }
-                if (p._dashDragTile) { renderDashFreeTileList(); }
-                p._dashDeleteTile = null;
-                p._dashDragTile   = null;
-                p._dashResizeTile = null;
+                if (p._dashDragTile) renderDashFreeTileList();
+                p._dashDeleteTile = null; p._dashDragTile = null; p._dashResizeTile = null;
+
+                // Live scene delete
+                if (p._lsDeleteTile && !p._lsDragTile && !p._lsResizeTile) {
+                    const idx = liveSceneLayout.tiles.indexOf(p._lsDeleteTile);
+                    if (idx !== -1) { liveSceneLayout.tiles.splice(idx, 1); saveSettings(); p.redraw(); renderLiveSceneTileList(); }
+                }
+                if (p._lsDragTile) renderLiveSceneTileList();
+                p._lsDeleteTile = null; p._lsDragTile = null; p._lsResizeTile = null;
             };
+
+            // Init live scene drag state
+            p._lsDragTile = null; p._lsResizeTile = null; p._lsDeleteTile = null;
+            p._lsDragOffX = 0; p._lsDragOffY = 0;
+            p._lsResizeStartMx = 0; p._lsResizeStartSize = 0;
             // ── End dashboard drag/resize ────────────────────────────────────────
 
             // ── Keyboard shortcuts ───────────────────────────────────────────────
             p.keyPressed = () => {
-                // F — fullscreen toggle (when in free edit mode on the dashboard)
                 if (p.key === 'f' || p.key === 'F') {
-                    if (dashboardEditMode && dashboardLayout.mode === 'free' &&
-                        currentVisualization === 'auraDashboard') {
+                    const inDashEdit = dashboardEditMode && dashboardLayout.mode === 'free' && currentVisualization === 'auraDashboard';
+                    const inLsEdit  = liveSceneEditMode && currentLiveVisualization === 'liveScene';
+                    if (inDashEdit || inLsEdit) {
                         if (!document.fullscreenElement) {
                             p.canvas.requestFullscreen().catch(() => {});
                         } else {
                             document.exitFullscreen();
                         }
-                        return false; // prevent browser default
+                        return false;
                     }
                 }
             };
@@ -4146,6 +4448,61 @@
                                 rowCurrentXOverlay += proportionalWidthOverlay;
                             }
                             break; // End of wovenTapestryOverlay case
+
+                        case 'liveScene': {
+                            // ── Live Scene: free-placed circular panels ────────────────
+                            p.background(0, 0, 6);
+                            const lsW = p.width, lsH = p.height;
+                            const lsData = latestValidData || absoluteLatestData;
+
+                            for (const tile of liveSceneLayout.tiles) {
+                                const bsize = tile.fsize * Math.min(lsW, lsH);
+                                const bx = tile.fx * lsW;
+                                const by = tile.fy * lsH;
+                                const lcx = bx + bsize / 2;
+                                const lcy = by + bsize / 2;
+                                const lr  = bsize / 2;
+
+                                // Optional panel background circle
+                                if (liveSceneLayout.panelBg !== false) {
+                                    p.noStroke(); p.fill(0, 0, 11, 0.9);
+                                    p.ellipse(lcx, lcy, bsize, bsize);
+                                }
+
+                                if (tile.type !== 'empty') {
+                                    liveScenePanelRender(tile, lsData, lcx, lcy, lr * 0.96);
+                                }
+
+                                // Edit handles
+                                if (liveSceneEditMode && !capturingScreenshot) {
+                                    const hw = 8;
+                                    const isActive = p._lsDragTile === tile;
+                                    // Circle outline
+                                    p.noFill();
+                                    p.stroke(isActive ? 45 : 0, isActive ? 90 : 0, isActive ? 90 : 20,
+                                             isActive ? 0.9 : 0.35);
+                                    p.strokeWeight(isActive ? 1.5 : 0.7);
+                                    p.ellipse(lcx, lcy, bsize, bsize);
+                                    // Drag bar (top arc label)
+                                    p.noStroke(); p.fill(45, 70, 80, 0.85);
+                                    p.rect(bx, by, bsize, 14, 4, 4, 0, 0);
+                                    p.fill(0, 0, 90); p.noStroke();
+                                    p.textAlign(p.LEFT, p.CENTER); p.textSize(9); p.textFont('sans-serif');
+                                    const chLabel = tile.channel >= 0 ? ` · Ch${tile.channel}` : ' · All';
+                                    p.text((LIVE_SCENE_PANEL_TYPES[tile.type] || tile.type) + chLabel, bx + 4, by + 7);
+                                    p.textAlign(p.CENTER, p.CENTER);
+                                    // Resize handle (bottom-right)
+                                    p.noStroke(); p.fill(180, 60, 80, 0.85);
+                                    p.rect(bx + bsize - hw, by + bsize - hw, hw, hw, 2);
+                                    // Delete handle (top-right)
+                                    p.fill(0, 70, 80, 0.85);
+                                    p.rect(bx + bsize - 14, by, 14, 14, 0, 4, 0, 0);
+                                    p.fill(0, 0, 95); p.noStroke();
+                                    p.textSize(10); p.text('×', bx + bsize - 7, by + 7);
+                                }
+                            }
+                            break;
+                        }
 
                         case 'none':
                              p.background(240); // Clear background
@@ -4971,6 +5328,83 @@
              applyDashMode(dashboardLayout.mode || 'grid');
              renderDashTileList();
              renderDashFreeTileList();
+             // ─────────────────────────────────────────────────────────────────
+
+             // ── Live Scene sidebar ────────────────────────────────────────────
+             const CH_OPTS = `<option value="-1">All</option>` +
+                 Array.from({length: 8}, (_, i) => `<option value="${i}">Ch ${i}</option>`).join('');
+
+             renderLiveSceneTileList = function() {
+                 const list = document.getElementById('lsFreeTileList');
+                 if (!list) return;
+                 list.innerHTML = liveSceneLayout.tiles.map((tile, i) => `
+                     <div style="display:flex;gap:3px;align-items:center;margin-bottom:3px;">
+                         <span style="font-size:9px;color:#555;width:14px;flex-shrink:0;">${i+1}</span>
+                         <select data-idx="${i}" class="lst-type" style="flex:2;font-size:10px;padding:1px 2px;">
+                             ${Object.entries(LIVE_SCENE_PANEL_TYPES).map(([k,v]) =>
+                                 `<option value="${k}"${tile.type===k?' selected':''}>${v}</option>`).join('')}
+                         </select>
+                         <select data-idx="${i}" class="lst-ch" style="flex:1;font-size:10px;padding:1px 2px;" title="Channel">
+                             ${Array.from({length:9}, (_,j) => {
+                                 const v = j - 1; const lbl = v < 0 ? 'All' : `Ch${v}`;
+                                 return `<option value="${v}"${tile.channel===v?' selected':''}>${lbl}</option>`;
+                             }).join('')}
+                         </select>
+                         <button data-idx="${i}" class="lst-del" style="padding:1px 5px;background:#3b0f0f;color:#f87171;border-color:#4d1515;min-width:20px;">×</button>
+                     </div>`).join('');
+
+                 list.querySelectorAll('.lst-type').forEach(el => el.addEventListener('change', e => {
+                     liveSceneLayout.tiles[+e.target.dataset.idx].type = e.target.value;
+                     saveSettings(); if (p5Instance) p5Instance.redraw();
+                 }));
+                 list.querySelectorAll('.lst-ch').forEach(el => el.addEventListener('change', e => {
+                     liveSceneLayout.tiles[+e.target.dataset.idx].channel = parseInt(e.target.value);
+                     saveSettings(); if (p5Instance) p5Instance.redraw();
+                 }));
+                 list.querySelectorAll('.lst-del').forEach(el => el.addEventListener('click', e => {
+                     liveSceneLayout.tiles.splice(+e.target.dataset.idx, 1);
+                     renderLiveSceneTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
+                 }));
+             };
+
+             function applyLsEditMode(on) {
+                 liveSceneEditMode = on;
+                 const btn = document.getElementById('lsEditToggle');
+                 if (btn) {
+                     btn.style.background  = on ? '#0f2a1a' : '#1a1a1a';
+                     btn.style.color       = on ? '#4ade80' : '#555';
+                     btn.style.borderColor = on ? '#1a4d2a' : '#2a2a2a';
+                 }
+                 if (p5Instance) p5Instance.redraw();
+             }
+
+             document.getElementById('lsEditToggle')?.addEventListener('click', () => applyLsEditMode(!liveSceneEditMode));
+
+             document.getElementById('lsAddTileBtn')?.addEventListener('click', () => {
+                 liveSceneLayout.tiles.push({
+                     id: Date.now().toString(), fx: 0.1, fy: 0.1, fsize: 0.25,
+                     type: 'ch_orb', channel: -1
+                 });
+                 renderLiveSceneTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
+             });
+
+             document.getElementById('lsResetBtn')?.addEventListener('click', () => {
+                 liveSceneLayout = JSON.parse(JSON.stringify(LIVE_SCENE_DEFAULT_LAYOUT));
+                 const bgCheck = document.getElementById('lsPanelBgCheck');
+                 if (bgCheck) bgCheck.checked = liveSceneLayout.panelBg !== false;
+                 renderLiveSceneTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
+             });
+
+             const lsPanelBgCheck = document.getElementById('lsPanelBgCheck');
+             if (lsPanelBgCheck) {
+                 lsPanelBgCheck.checked = liveSceneLayout.panelBg !== false;
+                 lsPanelBgCheck.addEventListener('change', () => {
+                     liveSceneLayout.panelBg = lsPanelBgCheck.checked;
+                     saveSettings(); if (p5Instance) p5Instance.redraw();
+                 });
+             }
+
+             renderLiveSceneTileList();
              // ─────────────────────────────────────────────────────────────────
 
              // Live data monitor — refresh sidebar every 100ms
