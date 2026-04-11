@@ -3724,7 +3724,10 @@
                     const cy = p.height / 2;
                     const t = p.frameCount;
                     const NUM_NODES = 8;
-                    const nodeRadius = Math.min(p.width, p.height) * 0.42;
+                    // ── Ellipse radii — adjust these to reshape the sigil ──────────
+                    const nodeRx = p.width  * 0.44; // horizontal arm reach
+                    const nodeRy = p.height * 0.44; // vertical arm reach
+                    // ──────────────────────────────────────────────────────────────
 
                     // Gather live sensor values (fall back to zeros if no data yet)
                     const sensorVals = [];
@@ -3747,18 +3750,18 @@
                     // Slow global rotation for the whole sigil
                     const globalRotation = t * 0.003;
 
-                    // --- Outer ghost ring ---
+                    // --- Outer ghost ellipse ---
                     const ghostPulse = p.sin(t * 0.025) * 0.5 + 0.5;
                     p.noFill();
                     p.stroke(bgHue, 15, 40, 0.12 + ghostPulse * 0.08);
                     p.strokeWeight(1);
-                    p.ellipse(cx, cy, nodeRadius * 2.35, nodeRadius * 2.35);
+                    p.ellipse(cx, cy, nodeRx * 2.1, nodeRy * 2.1);
 
                     // --- Node loop ---
                     for (let j = 0; j < NUM_NODES; j++) {
                         const baseAngle = (j / NUM_NODES) * p.TWO_PI - p.HALF_PI + globalRotation;
-                        const nx = cx + p.cos(baseAngle) * nodeRadius;
-                        const ny = cy + p.sin(baseAngle) * nodeRadius;
+                        const nx = cx + p.cos(baseAngle) * nodeRx;
+                        const ny = cy + p.sin(baseAngle) * nodeRy;
 
                         const val = sensorVals[j] || 0;
                         const isTriggered = triggerSensorIndices.includes(j) && val > TRIGGER_THRESHOLD;
