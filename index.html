@@ -266,21 +266,35 @@
             <!-- Dashboard Layout Config (shown when auraDashboard is selected) -->
             <div id="dashboardConfigSection" style="display:none;">
                 <div class="sidebar-section-title">Dashboard Layout</div>
-                <div style="display:flex; align-items:center; gap:5px; margin-bottom:6px; font-size:11px; color:#666;">
-                    Grid:
-                    <input type="number" id="dashCols" value="4" min="1" max="8" style="width:30px; text-align:center; padding:2px;" title="Columns">
-                    <span>×</span>
-                    <input type="number" id="dashRows" value="3" min="1" max="8" style="width:30px; text-align:center; padding:2px;" title="Rows">
-                    <span style="color:#444;">cells</span>
+                <!-- Mode toggle -->
+                <div style="display:flex; gap:4px; margin-bottom:8px;">
+                    <button id="dashModeGrid" style="flex:1; font-size:10px; padding:3px 4px;">Grid</button>
+                    <button id="dashModeFree" style="flex:1; font-size:10px; padding:3px 4px; background:#1a1a1a; color:#555; border-color:#2a2a2a;">Free</button>
+                    <button id="dashEditToggle" style="flex:1; font-size:10px; padding:3px 4px; background:#1a1a1a; color:#555; border-color:#2a2a2a;" title="Toggle drag/resize handles on canvas">Edit</button>
                 </div>
-                <div style="display:flex; gap:4px; font-size:9px; color:#444; margin-bottom:3px; padding:0 2px;">
-                    <span style="width:26px; text-align:center;">Col</span>
-                    <span style="width:26px; text-align:center;">Row</span>
-                    <span style="width:26px; text-align:center;">CW</span>
-                    <span style="width:26px; text-align:center;">RH</span>
-                    <span style="flex:1; padding-left:2px;">Type</span>
+                <!-- Grid mode controls -->
+                <div id="dashGridControls">
+                    <div style="display:flex; align-items:center; gap:5px; margin-bottom:6px; font-size:11px; color:#666;">
+                        Grid:
+                        <input type="number" id="dashCols" value="4" min="1" max="8" style="width:30px; text-align:center; padding:2px;" title="Columns">
+                        <span>×</span>
+                        <input type="number" id="dashRows" value="3" min="1" max="8" style="width:30px; text-align:center; padding:2px;" title="Rows">
+                        <span style="color:#444;">cells</span>
+                    </div>
+                    <div style="display:flex; gap:4px; font-size:9px; color:#444; margin-bottom:3px; padding:0 2px;">
+                        <span style="width:26px; text-align:center;">Col</span>
+                        <span style="width:26px; text-align:center;">Row</span>
+                        <span style="width:26px; text-align:center;">CW</span>
+                        <span style="width:26px; text-align:center;">RH</span>
+                        <span style="flex:1; padding-left:2px;">Type</span>
+                    </div>
+                    <div id="dashTileList" style="max-height:200px; overflow-y:auto; margin-bottom:6px;"></div>
                 </div>
-                <div id="dashTileList" style="max-height:200px; overflow-y:auto; margin-bottom:6px;"></div>
+                <!-- Free mode tile list -->
+                <div id="dashFreeControls" style="display:none;">
+                    <div style="font-size:9px; color:#444; margin-bottom:4px;">Drag panels on canvas · resize from corner · Shift+drag=snap</div>
+                    <div id="dashFreeTileList" style="max-height:200px; overflow-y:auto; margin-bottom:6px;"></div>
+                </div>
                 <div style="display:flex; gap:6px;">
                     <button id="dashAddTileBtn" style="flex:1;">+ Tile</button>
                     <button id="dashResetBtn" style="flex:1; background:#1a1a1a; color:#555; border-color:#2a2a2a;">Reset</button>
@@ -601,15 +615,19 @@
 
         // --- Dashboard grid layout (for auraDashboard viz) ---
         const DASHBOARD_DEFAULT_LAYOUT = {
+            mode: 'grid',
             cols: 4, rows: 3,
             tiles: [
-                { id: 'a', col: 0, row: 0, colSpan: 1, rowSpan: 2, type: 'sparklines'  },
-                { id: 'b', col: 1, row: 0, colSpan: 2, rowSpan: 2, type: 'sigil'       },
-                { id: 'c', col: 3, row: 0, colSpan: 1, rowSpan: 2, type: 'averages'    },
-                { id: 'd', col: 0, row: 2, colSpan: 4, rowSpan: 1, type: 'linegraph'   },
+                { id: 'a', col: 0, row: 0, colSpan: 1, rowSpan: 2, type: 'sparklines',  fx: 0.02, fy: 0.05, fsize: 0.3  },
+                { id: 'b', col: 1, row: 0, colSpan: 2, rowSpan: 2, type: 'sigil',        fx: 0.25, fy: 0.05, fsize: 0.45 },
+                { id: 'c', col: 3, row: 0, colSpan: 1, rowSpan: 2, type: 'averages',     fx: 0.72, fy: 0.05, fsize: 0.3  },
+                { id: 'd', col: 0, row: 2, colSpan: 4, rowSpan: 1, type: 'linegraph',    fx: 0.02, fy: 0.68, fsize: 0.95 },
             ]
         };
         let dashboardLayout = JSON.parse(JSON.stringify(DASHBOARD_DEFAULT_LAYOUT));
+        let dashboardEditMode = false; // true = show drag/resize handles on canvas
+        // Stub — overwritten after DOMContentLoaded wires up the real function
+        let renderDashFreeTileList = () => {};
         const DASHBOARD_PANEL_TYPES = {
             'sparklines':  'Sparklines',
             'sigil':       'Aura Sigil',
@@ -1034,8 +1052,15 @@
                     }
                     if (settings.dashboardLayout && settings.dashboardLayout.tiles) {
                         dashboardLayout = settings.dashboardLayout;
-                        if (!dashboardLayout.cols) dashboardLayout.cols = 4;
-                        if (!dashboardLayout.rows) dashboardLayout.rows = 3;
+                        if (!dashboardLayout.cols)  dashboardLayout.cols = 4;
+                        if (!dashboardLayout.rows)  dashboardLayout.rows = 3;
+                        if (!dashboardLayout.mode)  dashboardLayout.mode = 'grid';
+                        // Ensure free-mode coords exist on all tiles
+                        dashboardLayout.tiles.forEach((t, i) => {
+                            if (t.fx === undefined) t.fx = 0.02 + (i % 3) * 0.32;
+                            if (t.fy === undefined) t.fy = 0.05 + Math.floor(i / 3) * 0.48;
+                            if (t.fsize === undefined) t.fsize = 0.35;
+                        });
                     }
                     if (settings.waitingScreenType) waitingScreenType = settings.waitingScreenType;
                     if (settings.vizPickerSelectedIdx !== undefined) vizPickerSelectedIdx = parseInt(settings.vizPickerSelectedIdx, 10) || 0;
@@ -2656,39 +2681,93 @@
 
                     p.background(0, 0, 8);
 
-                    const { cols, rows, tiles } = dashboardLayout;
-                    const cellW = (W - gap*(cols+1)) / cols;
-                    const cellH = (H - gap*(rows+1)) / rows;
+                    const { cols, rows, tiles, mode } = dashboardLayout;
 
-                    for (const tile of tiles) {
-                        if (tile.col >= cols || tile.row >= rows) continue;
-                        const bx = gap + tile.col * (cellW + gap);
-                        const by = gap + tile.row * (cellH + gap);
-                        const bw = tile.colSpan * cellW + (tile.colSpan - 1) * gap;
-                        const bh = tile.rowSpan * cellH + (tile.rowSpan - 1) * gap;
+                    if (mode === 'free') {
+                        // ── Free placement mode ──────────────────────────────────────────
+                        for (const tile of tiles) {
+                            const bx = tile.fx * W;
+                            const by = tile.fy * H;
+                            const bsize = tile.fsize * Math.min(W, H);
 
-                        // Tile background
-                        p.noStroke(); p.fill(0, 0, 11); p.rect(bx, by, bw, bh, 4);
+                            p.noStroke(); p.fill(0, 0, 11); p.rect(bx, by, bsize, bsize, 4);
 
-                        // Clip rendering to this tile
-                        p.drawingContext.save();
-                        p.drawingContext.beginPath();
-                        p.drawingContext.rect(bx, by, bw, bh);
-                        p.drawingContext.clip();
+                            p.drawingContext.save();
+                            p.drawingContext.beginPath();
+                            p.drawingContext.rect(bx, by, bsize, bsize);
+                            p.drawingContext.clip();
 
-                        try { dashPanelRender(tile.type, data, avgs, nCh, bx, by, bw, bh); }
-                        catch(e) { console.warn('Dashboard tile error:', tile.type, e); }
-                        finally {
-                            // Always restore critical state — some panels (mask) change blend/color/angle modes
-                            p.blendMode(p.BLEND);
-                            p.colorMode(p.HSB, 360, 100, 100, 1.0);
-                            p.angleMode(p.RADIANS);
+                            try { dashPanelRender(tile.type, data, avgs, nCh, bx, by, bsize, bsize); }
+                            catch(e) { console.warn('Dashboard tile error:', tile.type, e); }
+                            finally {
+                                p.blendMode(p.BLEND);
+                                p.colorMode(p.HSB, 360, 100, 100, 1.0);
+                                p.angleMode(p.RADIANS);
+                            }
+
+                            p.drawingContext.restore();
+
+                            // Tile border
+                            p.noFill();
+                            if (dashboardEditMode && p._dashDragTile === tile) {
+                                p.stroke(45, 90, 90, 0.9); p.strokeWeight(1.5);
+                            } else {
+                                p.stroke(0, 0, 20, 0.3); p.strokeWeight(0.5);
+                            }
+                            p.rect(bx, by, bsize, bsize, 4);
+
+                            // Edit handles
+                            if (dashboardEditMode && !capturingScreenshot) {
+                                const hw = 8; // handle size
+                                // Drag handle — top-left label bar
+                                p.noStroke(); p.fill(45, 70, 80, 0.85);
+                                p.rect(bx, by, bsize, 14, 4, 4, 0, 0);
+                                p.fill(0, 0, 90); p.noStroke();
+                                p.textAlign(p.LEFT, p.CENTER);
+                                p.textSize(9); p.textFont('sans-serif');
+                                p.text(DASHBOARD_PANEL_TYPES[tile.type] || tile.type, bx + 4, by + 7);
+                                p.textAlign(p.CENTER, p.CENTER);
+                                // Resize handle — bottom-right corner (square)
+                                p.noStroke(); p.fill(180, 60, 80, 0.85);
+                                p.rect(bx + bsize - hw, by + bsize - hw, hw, hw, 2);
+                                // Delete handle — top-right ×
+                                p.fill(0, 70, 80, 0.85);
+                                p.rect(bx + bsize - 14, by, 14, 14, 0, 4, 0, 0);
+                                p.fill(0, 0, 95); p.noStroke();
+                                p.textSize(10); p.text('×', bx + bsize - 7, by + 7);
+                            }
                         }
+                    } else {
+                        // ── Grid mode ────────────────────────────────────────────────────
+                        const cellW = (W - gap*(cols+1)) / cols;
+                        const cellH = (H - gap*(rows+1)) / rows;
 
-                        p.drawingContext.restore();
+                        for (const tile of tiles) {
+                            if (tile.col >= cols || tile.row >= rows) continue;
+                            const bx = gap + tile.col * (cellW + gap);
+                            const by = gap + tile.row * (cellH + gap);
+                            const bw = tile.colSpan * cellW + (tile.colSpan - 1) * gap;
+                            const bh = tile.rowSpan * cellH + (tile.rowSpan - 1) * gap;
 
-                        // Tile border
-                        p.noFill(); p.stroke(0, 0, 20, 0.3); p.strokeWeight(0.5); p.rect(bx, by, bw, bh, 4);
+                            p.noStroke(); p.fill(0, 0, 11); p.rect(bx, by, bw, bh, 4);
+
+                            p.drawingContext.save();
+                            p.drawingContext.beginPath();
+                            p.drawingContext.rect(bx, by, bw, bh);
+                            p.drawingContext.clip();
+
+                            try { dashPanelRender(tile.type, data, avgs, nCh, bx, by, bw, bh); }
+                            catch(e) { console.warn('Dashboard tile error:', tile.type, e); }
+                            finally {
+                                p.blendMode(p.BLEND);
+                                p.colorMode(p.HSB, 360, 100, 100, 1.0);
+                                p.angleMode(p.RADIANS);
+                            }
+
+                            p.drawingContext.restore();
+
+                            p.noFill(); p.stroke(0, 0, 20, 0.3); p.strokeWeight(0.5); p.rect(bx, by, bw, bh, 4);
+                        }
                     }
                 }, // End auraDashboard
 
@@ -3305,6 +3384,9 @@
 
                 // --- Add Fullscreen Toggle on Click ---
                 cnv.mouseClicked(async () => {
+                    // Suppress fullscreen toggle when edit mode consumed the click
+                    if (dashboardEditMode && dashboardLayout.mode === 'free' &&
+                        currentVisualization === 'auraDashboard') return;
                     // Check if already in fullscreen *on this element* or any element
                     if (!document.fullscreenElement) {
                         try {
@@ -3312,8 +3394,6 @@
                             await p.canvas.requestFullscreen();
                         } catch (err) {
                             console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
-                            // Optionally show a message to the user
-                            // showError(`Fullscreen request failed: ${err.message}`);
                         }
                     } else {
                         // Exit fullscreen if currently active
@@ -3324,6 +3404,97 @@
                 });
                  // --- End Fullscreen Toggle ---
             };
+
+            // ── Dashboard free-placement drag/resize state ──────────────────────
+            p._dashDragTile   = null;  // tile being dragged
+            p._dashResizeTile = null;  // tile being resized
+            p._dashDeleteTile = null;  // tile to delete after mouseReleased
+            p._dashDragOffX   = 0;
+            p._dashDragOffY   = 0;
+            p._dashResizeStartMx = 0;
+            p._dashResizeStartSize = 0;
+
+            function _dashHitTest(mx, my) {
+                // Returns { tile, zone } where zone = 'drag' | 'resize' | 'delete' | null
+                if (!dashboardEditMode || dashboardLayout.mode !== 'free') return null;
+                if (currentVisualization !== 'auraDashboard') return null;
+                const W = p.width, H = p.height;
+                const hw = 8; // resize handle size
+                // Iterate in reverse so topmost (last-rendered) tile wins
+                for (let i = dashboardLayout.tiles.length - 1; i >= 0; i--) {
+                    const tile = dashboardLayout.tiles[i];
+                    const bx = tile.fx * W;
+                    const by = tile.fy * H;
+                    const bsize = tile.fsize * Math.min(W, H);
+                    if (mx < bx || mx > bx + bsize || my < by || my > by + bsize) continue;
+                    // Delete zone: top-right 14×14
+                    if (mx >= bx + bsize - 14 && my <= by + 14) return { tile, zone: 'delete' };
+                    // Resize zone: bottom-right hw×hw corner
+                    if (mx >= bx + bsize - hw && my >= by + bsize - hw) return { tile, zone: 'resize' };
+                    // Drag zone: top label bar (first 14px height) or anywhere else
+                    return { tile, zone: 'drag' };
+                }
+                return null;
+            }
+
+            p.mousePressed = () => {
+                if (!dashboardEditMode || dashboardLayout.mode !== 'free') return;
+                if (currentVisualization !== 'auraDashboard') return;
+                const hit = _dashHitTest(p.mouseX, p.mouseY);
+                if (!hit) return;
+                if (hit.zone === 'delete') {
+                    p._dashDeleteTile = hit.tile;
+                } else if (hit.zone === 'resize') {
+                    p._dashResizeTile = hit.tile;
+                    p._dashResizeStartMx   = p.mouseX;
+                    p._dashResizeStartSize = hit.tile.fsize;
+                } else {
+                    p._dashDragTile = hit.tile;
+                    const W = p.width, H = p.height;
+                    p._dashDragOffX = p.mouseX - hit.tile.fx * W;
+                    p._dashDragOffY = p.mouseY - hit.tile.fy * H;
+                }
+            };
+
+            p.mouseDragged = () => {
+                if (!dashboardEditMode || dashboardLayout.mode !== 'free') return;
+                const W = p.width, H = p.height;
+                if (p._dashDragTile) {
+                    let nx = (p.mouseX - p._dashDragOffX) / W;
+                    let ny = (p.mouseY - p._dashDragOffY) / H;
+                    if (p.keyIsDown(p.SHIFT)) {
+                        // Snap to 0.05 grid
+                        nx = Math.round(nx / 0.05) * 0.05;
+                        ny = Math.round(ny / 0.05) * 0.05;
+                    }
+                    p._dashDragTile.fx = p.constrain(nx, 0, 1 - p._dashDragTile.fsize * Math.min(W,H) / W);
+                    p._dashDragTile.fy = p.constrain(ny, 0, 1 - p._dashDragTile.fsize * Math.min(W,H) / H);
+                    saveSettings(); p.redraw();
+                } else if (p._dashResizeTile) {
+                    const delta = (p.mouseX - p._dashResizeStartMx) / Math.min(W, H);
+                    let ns = p.constrain(p._dashResizeStartSize + delta, 0.05, 1.0);
+                    if (p.keyIsDown(p.SHIFT)) ns = Math.round(ns / 0.05) * 0.05;
+                    p._dashResizeTile.fsize = ns;
+                    saveSettings(); p.redraw();
+                }
+            };
+
+            p.mouseReleased = () => {
+                // Only delete if this was a clean click (no drag/resize was active)
+                if (p._dashDeleteTile && !p._dashDragTile && !p._dashResizeTile) {
+                    const idx = dashboardLayout.tiles.indexOf(p._dashDeleteTile);
+                    if (idx !== -1) {
+                        dashboardLayout.tiles.splice(idx, 1);
+                        saveSettings(); p.redraw();
+                        renderDashFreeTileList();
+                    }
+                }
+                if (p._dashDragTile) { renderDashFreeTileList(); }
+                p._dashDeleteTile = null;
+                p._dashDragTile   = null;
+                p._dashResizeTile = null;
+            };
+            // ── End dashboard drag/resize ────────────────────────────────────────
 
             // --- Viz Picker Icon Helper ---
             // Draws a small iconic preview for each result viz type.
@@ -4654,9 +4825,6 @@
                  if (colsIn) colsIn.value = dashboardLayout.cols;
                  if (rowsIn) rowsIn.value = dashboardLayout.rows;
 
-                 const typeOpts = Object.entries(DASHBOARD_PANEL_TYPES)
-                     .map(([k,v]) => `<option value="${k}">${v}</option>`).join('');
-
                  list.innerHTML = dashboardLayout.tiles.map((tile, i) => `
                      <div style="display:flex;gap:3px;align-items:center;margin-bottom:3px;">
                          <input type="number" value="${tile.col}"     min="0" max="7" style="width:26px;text-align:center;padding:1px;" data-idx="${i}" data-field="col"     class="dt-inp" title="Start column">
@@ -4684,6 +4852,60 @@
                  }));
              }
 
+             // Free-mode tile list (just shows type selects + delete)
+             // Assign to outer-scope stub so p5 mouse handlers can call it
+             renderDashFreeTileList = function() {
+                 const list = document.getElementById('dashFreeTileList');
+                 if (!list) return;
+                 list.innerHTML = dashboardLayout.tiles.map((tile, i) => `
+                     <div style="display:flex;gap:3px;align-items:center;margin-bottom:3px;">
+                         <span style="font-size:9px;color:#555;width:16px;flex-shrink:0;">${i+1}</span>
+                         <select data-idx="${i}" class="dft-type" style="flex:1;font-size:10px;padding:1px 2px;">
+                             ${Object.entries(DASHBOARD_PANEL_TYPES).map(([k,v]) =>
+                                 `<option value="${k}"${tile.type===k?' selected':''}>${v}</option>`).join('')}
+                         </select>
+                         <button data-idx="${i}" class="dft-del" style="padding:1px 5px;background:#3b0f0f;color:#f87171;border-color:#4d1515;min-width:20px;">×</button>
+                     </div>`).join('');
+
+                 list.querySelectorAll('.dft-type').forEach(el => el.addEventListener('change', e => {
+                     dashboardLayout.tiles[+e.target.dataset.idx].type = e.target.value;
+                     saveSettings(); if (p5Instance) p5Instance.redraw();
+                 }));
+                 list.querySelectorAll('.dft-del').forEach(el => el.addEventListener('click', e => {
+                     dashboardLayout.tiles.splice(+e.target.dataset.idx, 1);
+                     renderDashFreeTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
+                 }));
+             }
+
+             function applyDashMode(mode) {
+                 dashboardLayout.mode = mode;
+                 const gridBtn  = document.getElementById('dashModeGrid');
+                 const freeBtn  = document.getElementById('dashModeFree');
+                 const gridCtrl = document.getElementById('dashGridControls');
+                 const freeCtrl = document.getElementById('dashFreeControls');
+                 const isGrid   = mode === 'grid';
+                 if (gridBtn) { gridBtn.style.background = isGrid ? '' : '#1a1a1a'; gridBtn.style.color = isGrid ? '' : '#555'; gridBtn.style.borderColor = isGrid ? '' : '#2a2a2a'; }
+                 if (freeBtn) { freeBtn.style.background = !isGrid ? '' : '#1a1a1a'; freeBtn.style.color = !isGrid ? '' : '#555'; freeBtn.style.borderColor = !isGrid ? '' : '#2a2a2a'; }
+                 if (gridCtrl) gridCtrl.style.display = isGrid ? '' : 'none';
+                 if (freeCtrl) freeCtrl.style.display = isGrid ? 'none' : '';
+                 saveSettings(); if (p5Instance) p5Instance.redraw();
+             }
+
+             function applyDashEditMode(on) {
+                 dashboardEditMode = on;
+                 const btn = document.getElementById('dashEditToggle');
+                 if (btn) {
+                     btn.style.background    = on ? '#0f2a1a' : '#1a1a1a';
+                     btn.style.color         = on ? '#4ade80' : '#555';
+                     btn.style.borderColor   = on ? '#1a4d2a' : '#2a2a2a';
+                 }
+                 if (p5Instance) p5Instance.redraw();
+             }
+
+             document.getElementById('dashModeGrid')?.addEventListener('click', () => applyDashMode('grid'));
+             document.getElementById('dashModeFree')?.addEventListener('click', () => applyDashMode('free'));
+             document.getElementById('dashEditToggle')?.addEventListener('click', () => applyDashEditMode(!dashboardEditMode));
+
              document.getElementById('dashCols')?.addEventListener('change', e => {
                  dashboardLayout.cols = parseInt(e.target.value) || 4;
                  saveSettings(); if (p5Instance) p5Instance.redraw();
@@ -4693,15 +4915,24 @@
                  saveSettings(); if (p5Instance) p5Instance.redraw();
              });
              document.getElementById('dashAddTileBtn')?.addEventListener('click', () => {
-                 dashboardLayout.tiles.push({ id: Date.now().toString(), col:0, row:0, colSpan:1, rowSpan:1, type:'empty' });
-                 renderDashTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
+                 const newTile = { id: Date.now().toString(), col:0, row:0, colSpan:1, rowSpan:1,
+                                   fx: 0.1, fy: 0.1, fsize: 0.35, type:'empty' };
+                 dashboardLayout.tiles.push(newTile);
+                 if (dashboardLayout.mode === 'free') renderDashFreeTileList();
+                 else renderDashTileList();
+                 saveSettings(); if (p5Instance) p5Instance.redraw();
              });
              document.getElementById('dashResetBtn')?.addEventListener('click', () => {
                  dashboardLayout = JSON.parse(JSON.stringify(DASHBOARD_DEFAULT_LAYOUT));
-                 renderDashTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
+                 applyDashMode(dashboardLayout.mode);
+                 renderDashTileList(); renderDashFreeTileList();
+                 saveSettings(); if (p5Instance) p5Instance.redraw();
              });
 
+             // Initial render
+             applyDashMode(dashboardLayout.mode || 'grid');
              renderDashTileList();
+             renderDashFreeTileList();
              // ─────────────────────────────────────────────────────────────────
 
              // Live data monitor — refresh sidebar every 100ms

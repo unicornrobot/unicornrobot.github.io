@@ -18,6 +18,14 @@ improve tapestry viz readings.
 vanilla crt shader model
 
 
+Template dashboard for wooden screen cover
+a wooden frame will be placed over the screen containing an arrangement of circular holes. Only the parts of the screen through the holes will be visible. 
+there are 2 large circles, 8 smaller circles, and one smaller central circle. 
+(see attachement)
+
+design a mode that enables me to toggle between editing the dashboard layout by free placement of the panels and also by the current method using grids. 
+I should be able to drag the panels anywhere on the canvas and scale them (constrained to equal width/height).
+The layout should be saved and auto loaded.
 
 
 
