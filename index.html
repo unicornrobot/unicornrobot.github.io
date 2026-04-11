@@ -292,9 +292,14 @@
                 </div>
                 <!-- Free mode tile list -->
                 <div id="dashFreeControls" style="display:none;">
-                    <div style="font-size:9px; color:#444; margin-bottom:4px;">Drag panels on canvas · resize from corner · Shift+drag=snap</div>
+                    <div style="font-size:9px; color:#444; margin-bottom:4px;">Drag · resize corner · Shift=snap · F=fullscreen</div>
                     <div id="dashFreeTileList" style="max-height:200px; overflow-y:auto; margin-bottom:6px;"></div>
                 </div>
+                <!-- Panel background toggle (both modes) -->
+                <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:#555; margin-bottom:6px; cursor:pointer;">
+                    <input type="checkbox" id="dashPanelBgCheck" checked style="margin:0;">
+                    Panel background
+                </label>
                 <div style="display:flex; gap:6px;">
                     <button id="dashAddTileBtn" style="flex:1;">+ Tile</button>
                     <button id="dashResetBtn" style="flex:1; background:#1a1a1a; color:#555; border-color:#2a2a2a;">Reset</button>
@@ -616,6 +621,7 @@
         // --- Dashboard grid layout (for auraDashboard viz) ---
         const DASHBOARD_DEFAULT_LAYOUT = {
             mode: 'grid',
+            panelBg: true,
             cols: 4, rows: 3,
             tiles: [
                 { id: 'a', col: 0, row: 0, colSpan: 1, rowSpan: 2, type: 'sparklines',  fx: 0.02, fy: 0.05, fsize: 0.3  },
@@ -1054,7 +1060,8 @@
                         dashboardLayout = settings.dashboardLayout;
                         if (!dashboardLayout.cols)  dashboardLayout.cols = 4;
                         if (!dashboardLayout.rows)  dashboardLayout.rows = 3;
-                        if (!dashboardLayout.mode)  dashboardLayout.mode = 'grid';
+                        if (!dashboardLayout.mode)   dashboardLayout.mode = 'grid';
+                        if (dashboardLayout.panelBg === undefined) dashboardLayout.panelBg = true;
                         // Ensure free-mode coords exist on all tiles
                         dashboardLayout.tiles.forEach((t, i) => {
                             if (t.fx === undefined) t.fx = 0.02 + (i % 3) * 0.32;
@@ -2681,7 +2688,7 @@
 
                     p.background(0, 0, 8);
 
-                    const { cols, rows, tiles, mode } = dashboardLayout;
+                    const { cols, rows, tiles, mode, panelBg } = dashboardLayout;
 
                     if (mode === 'free') {
                         // ── Free placement mode ──────────────────────────────────────────
@@ -2690,7 +2697,7 @@
                             const by = tile.fy * H;
                             const bsize = tile.fsize * Math.min(W, H);
 
-                            p.noStroke(); p.fill(0, 0, 11); p.rect(bx, by, bsize, bsize, 4);
+                            if (panelBg !== false) { p.noStroke(); p.fill(0, 0, 11); p.rect(bx, by, bsize, bsize, 4); }
 
                             p.drawingContext.save();
                             p.drawingContext.beginPath();
@@ -2749,7 +2756,7 @@
                             const bw = tile.colSpan * cellW + (tile.colSpan - 1) * gap;
                             const bh = tile.rowSpan * cellH + (tile.rowSpan - 1) * gap;
 
-                            p.noStroke(); p.fill(0, 0, 11); p.rect(bx, by, bw, bh, 4);
+                            if (panelBg !== false) { p.noStroke(); p.fill(0, 0, 11); p.rect(bx, by, bw, bh, 4); }
 
                             p.drawingContext.save();
                             p.drawingContext.beginPath();
@@ -3495,6 +3502,23 @@
                 p._dashResizeTile = null;
             };
             // ── End dashboard drag/resize ────────────────────────────────────────
+
+            // ── Keyboard shortcuts ───────────────────────────────────────────────
+            p.keyPressed = () => {
+                // F — fullscreen toggle (when in free edit mode on the dashboard)
+                if (p.key === 'f' || p.key === 'F') {
+                    if (dashboardEditMode && dashboardLayout.mode === 'free' &&
+                        currentVisualization === 'auraDashboard') {
+                        if (!document.fullscreenElement) {
+                            p.canvas.requestFullscreen().catch(() => {});
+                        } else {
+                            document.exitFullscreen();
+                        }
+                        return false; // prevent browser default
+                    }
+                }
+            };
+            // ── End keyboard shortcuts ───────────────────────────────────────────
 
             // --- Viz Picker Icon Helper ---
             // Draws a small iconic preview for each result viz type.
@@ -4906,6 +4930,15 @@
              document.getElementById('dashModeFree')?.addEventListener('click', () => applyDashMode('free'));
              document.getElementById('dashEditToggle')?.addEventListener('click', () => applyDashEditMode(!dashboardEditMode));
 
+             const panelBgCheck = document.getElementById('dashPanelBgCheck');
+             if (panelBgCheck) {
+                 panelBgCheck.checked = dashboardLayout.panelBg !== false;
+                 panelBgCheck.addEventListener('change', () => {
+                     dashboardLayout.panelBg = panelBgCheck.checked;
+                     saveSettings(); if (p5Instance) p5Instance.redraw();
+                 });
+             }
+
              document.getElementById('dashCols')?.addEventListener('change', e => {
                  dashboardLayout.cols = parseInt(e.target.value) || 4;
                  saveSettings(); if (p5Instance) p5Instance.redraw();
@@ -4926,6 +4959,8 @@
                  dashboardLayout = JSON.parse(JSON.stringify(DASHBOARD_DEFAULT_LAYOUT));
                  applyDashMode(dashboardLayout.mode);
                  renderDashTileList(); renderDashFreeTileList();
+                 const bgCheck = document.getElementById('dashPanelBgCheck');
+                 if (bgCheck) bgCheck.checked = dashboardLayout.panelBg !== false;
                  saveSettings(); if (p5Instance) p5Instance.redraw();
              });
 
