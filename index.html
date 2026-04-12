@@ -2605,21 +2605,34 @@
             };
 
             // countdown: collection timer as a rectangular dashboard panel
+            // Works in three contexts:
+            //   1. isCollecting=true  → collection countdown
+            //   2. post-collection + installation hold → scene-change hold countdown
+            //   3. otherwise → "done" state (full ring, 0)
             const _dp_countdown = (bx, by, bw, bh) => {
-                if (collectIndefinitely || !collectionStartTime) {
-                    // Nothing collecting — show a neutral placeholder
-                    p.noStroke(); p.fill(0, 0, 20, 0.5);
-                    p.textAlign(p.CENTER, p.CENTER); p.textSize(Math.min(bw, bh) * 0.12);
-                    p.textFont('sans-serif'); p.fill(0, 0, 50, 0.7);
-                    p.text('—', bx + bw / 2, by + bh / 2);
-                    return;
-                }
-                const durationMs = parseInt(collectDurationInput.value, 10) * 1000 || 1;
-                const elapsed = Date.now() - collectionStartTime;
-                const remaining = p.constrain(1 - elapsed / durationMs, 0, 1);
-                const secsLeft = Math.max(0, Math.ceil((durationMs - elapsed) / 1000));
-                const timerHue = p.map(remaining, 0, 1, 15, 180);
+                let remaining, secsLeft, label;
 
+                if (isCollecting && !collectIndefinitely && collectionStartTime) {
+                    // Active collection countdown
+                    const durationMs = parseInt(collectDurationInput.value, 10) * 1000 || 1;
+                    const elapsed = Date.now() - collectionStartTime;
+                    remaining = p.constrain(1 - elapsed / durationMs, 0, 1);
+                    secsLeft = Math.max(0, Math.ceil((durationMs - elapsed) / 1000));
+                    label = 'sec';
+                } else if (!isCollecting && isInstallationMode && autoSceneChange && displayHoldStartTime) {
+                    // Post-collection scene-change hold countdown
+                    const elapsed = Date.now() - displayHoldStartTime;
+                    remaining = p.constrain(1 - elapsed / DISPLAY_HOLD_MS, 0, 1);
+                    secsLeft = Math.max(0, Math.ceil((DISPLAY_HOLD_MS - elapsed) / 1000));
+                    label = 'hold';
+                } else {
+                    // Idle / done — show a completed ring
+                    remaining = 0;
+                    secsLeft = 0;
+                    label = 'done';
+                }
+
+                const timerHue = p.map(remaining, 0, 1, 15, 180);
                 const cx = bx + bw / 2, cy = by + bh / 2;
                 const r = Math.min(bw, bh) * 0.4;
                 const sw = r * 0.1;
@@ -2628,7 +2641,7 @@
                 p.noFill(); p.stroke(0, 0, 30, 0.55); p.strokeWeight(sw);
                 p.arc(cx, cy, r * 2, r * 2, -p.HALF_PI, -p.HALF_PI + p.TWO_PI * 0.9999);
 
-                // Remaining arc
+                // Remaining arc (skip when done)
                 if (remaining > 0.001) {
                     p.stroke(timerHue, 80, 90, 0.92); p.strokeWeight(sw);
                     p.arc(cx, cy, r * 2, r * 2, -p.HALF_PI, -p.HALF_PI + p.TWO_PI * remaining);
@@ -2639,9 +2652,9 @@
                 p.textAlign(p.CENTER, p.CENTER); p.textSize(r * 0.55); p.textFont('sans-serif');
                 p.text(secsLeft, cx, cy);
 
-                // "sec" sub-label
+                // Sub-label
                 p.fill(0, 0, 60, 0.7); p.textSize(r * 0.25);
-                p.text('sec', cx, cy + r * 0.52);
+                p.text(label, cx, cy + r * 0.52);
             };
 
             // Dispatcher: renders one live scene panel clipped to a circle
