@@ -306,6 +306,24 @@
                 </div>
             </div>
 
+            <!-- Waiting Scene Layout Config (shown when waitingScene screen type is selected) -->
+            <div id="waitingSceneConfigSection" style="display:none;">
+                <div class="sidebar-section-title">Waiting Scene Layout</div>
+                <div style="display:flex; gap:4px; margin-bottom:8px;">
+                    <button id="wsEditToggle" style="flex:1; font-size:10px; padding:3px 4px; background:#1a1a1a; color:#555; border-color:#2a2a2a;" title="Toggle drag/resize handles on canvas">Edit</button>
+                </div>
+                <div style="font-size:9px; color:#444; margin-bottom:4px;">Drag · resize corner · Shift=snap · F=fullscreen</div>
+                <div id="wsFreeTileList" style="max-height:240px; overflow-y:auto; margin-bottom:6px;"></div>
+                <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:#555; margin-bottom:6px; cursor:pointer;">
+                    <input type="checkbox" id="wsPanelBgCheck" style="margin:0;">
+                    Circle background
+                </label>
+                <div style="display:flex; gap:6px;">
+                    <button id="wsAddTileBtn" style="flex:1;">+ Panel</button>
+                    <button id="wsResetBtn" style="flex:1; background:#1a1a1a; color:#555; border-color:#2a2a2a;">Reset</button>
+                </div>
+            </div>
+
             <!-- Live Scene Layout Config (shown when liveScene is selected) -->
             <div id="liveSceneConfigSection" style="display:none;">
                 <div class="sidebar-section-title">Live Scene Layout</div>
@@ -672,6 +690,18 @@
         let liveSceneEditMode = false;
         let renderLiveSceneTileList = () => {};
 
+        // --- Waiting Scene Layout (free-placement panels for the waiting/watching screen) ---
+        const WAITING_SCENE_DEFAULT_LAYOUT = {
+            panelBg: false,
+            tiles: [
+                { id: 'ws0', fx: 0.25, fy: 0.12, fsize: 0.50, type: 'ws_sigil', channel: -1 },
+                { id: 'ws1', fx: 0.30, fy: 0.72, fsize: 0.40, type: 'text',     channel: -1, text: 'Touch to begin' },
+            ]
+        };
+        let waitingSceneLayout = JSON.parse(JSON.stringify(WAITING_SCENE_DEFAULT_LAYOUT));
+        let waitingSceneEditMode = false;
+        let renderWaitingSceneTileList = () => {};
+
         const LIVE_SCENE_PANEL_TYPES = {
             'ch_ring':     'Ring',
             'ch_pulse':    'Pulse',
@@ -681,6 +711,8 @@
             'ch_orb':      'Orb',
             'ch_arc_fill': 'Arc Fill',
             'countdown':   'Countdown Timer',
+            'ws_sigil':    'Waiting Sigil',
+            'text':        'Text Label',
             'empty':       'Empty',
         };
 
@@ -789,8 +821,9 @@
             const waitingRadios = document.getElementById('waitingScreenRadios');
             if (waitingRadios) {
                 waitingRadios.innerHTML = [
-                    { value: 'sigil',     label: 'Sigil' },
-                    { value: 'vizPicker', label: 'Viz Picker' }
+                    { value: 'sigil',        label: 'Sigil' },
+                    { value: 'waitingScene', label: 'Scene Layout' },
+                    { value: 'vizPicker',    label: 'Viz Picker' }
                 ].map(o => `
                     <label style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;">
                         <input type="radio" name="waitingScreen" value="${o.value}" ${waitingScreenType === o.value ? 'checked' : ''}>
@@ -1025,6 +1058,7 @@
                 autoSaveResults: autoSaveResults,
                 dashboardLayout: dashboardLayout,
                 liveSceneLayout: liveSceneLayout,
+                waitingSceneLayout: waitingSceneLayout,
                 // Save enabled state only (keys are stable, order may change)
                 vizRegistryLive:    vizRegistry.live.map(v => ({ key: v.key, enabled: v.enabled })),
                 vizRegistryResults: vizRegistry.results.map(v => ({ key: v.key, enabled: v.enabled })),
@@ -1130,6 +1164,17 @@
                             if (t.fy === undefined) t.fy = 0.05 + Math.floor(i / 4) * 0.5;
                             if (t.fsize === undefined) t.fsize = 0.22;
                             if (t.channel === undefined) t.channel = -1;
+                        });
+                    }
+                    if (settings.waitingSceneLayout && settings.waitingSceneLayout.tiles) {
+                        waitingSceneLayout = settings.waitingSceneLayout;
+                        if (waitingSceneLayout.panelBg === undefined) waitingSceneLayout.panelBg = false;
+                        waitingSceneLayout.tiles.forEach((t, i) => {
+                            if (t.fx === undefined) t.fx = 0.05 + (i % 4) * 0.24;
+                            if (t.fy === undefined) t.fy = 0.05 + Math.floor(i / 4) * 0.5;
+                            if (t.fsize === undefined) t.fsize = 0.22;
+                            if (t.channel === undefined) t.channel = -1;
+                            if (t.text === undefined) t.text = '';
                         });
                     }
                     if (settings.waitingScreenType) waitingScreenType = settings.waitingScreenType;
@@ -2657,6 +2702,117 @@
                 p.text(label, cx, cy + r * 0.52);
             };
 
+            // ws_sigil: the existing 8-armed waiting sigil, scaled into a panel circle
+            // Reads from absoluteLatestData just like the full-screen version
+            const _ls_ws_sigil = (cx, cy, r) => {
+                const t = p.frameCount;
+                const NUM_NODES = 8;
+                const sensorVals = [];
+                for (let j = 0; j < NUM_NODES; j++)
+                    sensorVals.push((absoluteLatestData && absoluteLatestData[j] != null) ? absoluteLatestData[j] : 0);
+
+                const activeCount = triggerSensorIndices.filter(i => (sensorVals[i] || 0) > TRIGGER_THRESHOLD).length;
+                const alignRatio = p.constrain(activeCount / TRIGGER_MIN_COUNT, 0, 1);
+                const globalRot = t * 0.003;
+
+                const nodeRx = r * 0.82;
+                const nodeRy = r * 0.82;
+                const nodeRadius = r * 0.07;
+
+                // Arms + nodes
+                for (let j = 0; j < NUM_NODES; j++) {
+                    const baseAngle = (j / NUM_NODES) * p.TWO_PI - p.HALF_PI + globalRot;
+                    const nx = cx + p.cos(baseAngle) * nodeRx;
+                    const ny = cy + p.sin(baseAngle) * nodeRy;
+                    const sv = sensorVals[j];
+                    const snorm = p.constrain(sv / 360, 0, 1);
+                    const isActive = sv > TRIGGER_THRESHOLD;
+                    const { h: hue, s: sat, b: bri } = getChannelColor(j, NUM_NODES, [sv]);
+
+                    // Arm line
+                    const lineAlpha = p.lerp(0.08, 0.5, snorm);
+                    p.stroke(hue, sat * 0.5, bri * 0.6, lineAlpha);
+                    p.strokeWeight(r * 0.012);
+                    p.line(cx, cy, nx, ny);
+
+                    // Orrery arc
+                    const orrR = nodeRadius * (0.9 + snorm * 0.5);
+                    p.noFill(); p.stroke(hue, sat, bri, 0.55 + snorm * 0.35);
+                    p.strokeWeight(r * 0.018);
+                    if (snorm > 0.01)
+                        p.arc(nx, ny, orrR * 2, orrR * 2, -p.HALF_PI, -p.HALF_PI + p.TWO_PI * snorm);
+
+                    // Node dot
+                    if (isActive) {
+                        p.noStroke(); p.fill(hue, sat * 0.4, 100, 0.12 + snorm * 0.1);
+                        p.ellipse(nx, ny, nodeRadius * 3.5, nodeRadius * 3.5);
+                    }
+                    p.noStroke(); p.fill(hue, sat, bri, 0.6 + snorm * 0.35);
+                    p.ellipse(nx, ny, nodeRadius * (0.6 + snorm * 0.8), nodeRadius * (0.6 + snorm * 0.8));
+                }
+
+                // Central star arms
+                const starInner = r * 0.04, starOuter = r * 0.12;
+                for (let j = 0; j < NUM_NODES; j++) {
+                    const sv = sensorVals[j];
+                    const snorm = p.constrain(sv / 360, 0, 1);
+                    if (snorm < 0.02) continue;
+                    const { h: hue, s: sat, b: bri } = getChannelColor(j, NUM_NODES, [sv]);
+                    const a1 = (j / NUM_NODES) * p.TWO_PI - p.HALF_PI + globalRot;
+                    const a2 = a1 + p.TWO_PI / NUM_NODES / 2;
+                    const tipR = starOuter * snorm;
+                    p.noStroke();
+                    p.fill(hue, sat * 0.7, bri, 0.5 * snorm);
+                    p.beginShape();
+                    p.vertex(cx + p.cos(a1 - 0.18) * starInner, cy + p.sin(a1 - 0.18) * starInner);
+                    p.vertex(cx + p.cos(a1) * tipR, cy + p.sin(a1) * tipR);
+                    p.vertex(cx + p.cos(a1 + 0.18) * starInner, cy + p.sin(a1 + 0.18) * starInner);
+                    p.endShape(p.CLOSE);
+                }
+
+                // Central dot
+                const centralGlow = p.lerp(0.3, 1.0, alignRatio);
+                const centralHue  = p.lerp(200, 45, alignRatio);
+                p.noStroke(); p.fill(centralHue, 40, 80, centralGlow * 0.35);
+                p.ellipse(cx, cy, r * 0.18, r * 0.18);
+                p.fill(centralHue, 70, 95, centralGlow * 0.7);
+                p.ellipse(cx, cy, r * 0.06, r * 0.06);
+            };
+
+            // text: instruction/label tile — displays configurable text, auto-sized to fit the circle
+            const _ls_text = (tile, cx, cy, r) => {
+                const str = tile.text || '';
+                if (!str) return;
+                const t = p.frameCount;
+                // Gentle breathing alpha
+                const alpha = p.map(p.sin(t * 0.018), -1, 1, 0.45, 0.9);
+                p.noStroke();
+                p.fill(0, 0, 90, alpha);
+                p.textAlign(p.CENTER, p.CENTER);
+                p.textFont('sans-serif');
+                // Scale font so text fits within the circle diameter
+                const maxW = r * 1.6;
+                let sz = r * 0.28;
+                p.textSize(sz);
+                // Wrap into lines no wider than maxW, then shrink if needed
+                const words = str.split(' ');
+                let lines = [], line = '';
+                for (const w of words) {
+                    const test = line ? line + ' ' + w : w;
+                    if (p.textWidth(test) > maxW && line) { lines.push(line); line = w; }
+                    else line = test;
+                }
+                if (line) lines.push(line);
+                // If any line is still too wide, reduce size
+                while (sz > r * 0.08 && lines.some(l => p.textWidth(l) > maxW)) {
+                    sz -= r * 0.02; p.textSize(sz);
+                }
+                const lineH = sz * 1.3;
+                const totalH = lines.length * lineH;
+                lines.forEach((l, i) => p.text(l, cx, cy - totalH / 2 + i * lineH + lineH / 2));
+            };
+
+
             // Dispatcher: renders one live scene panel clipped to a circle
             const liveScenePanelRender = (tile, liveData, cx, cy, r) => {
                 const ch = tile.channel; // -1 = combined
@@ -2692,6 +2848,8 @@
                         case 'ch_orb':      _ls_orb(val, history, chIdx, nCh, cx, cy, r);      break;
                         case 'ch_arc_fill': _ls_arc_fill(val, history, chIdx, nCh, cx, cy, r); break;
                         case 'countdown':   _ls_countdown(cx, cy, r);                          break;
+                        case 'ws_sigil':    _ls_ws_sigil(cx, cy, r);                           break;
+                        case 'text':        _ls_text(tile, cx, cy, r);                         break;
                     }
                 } catch(e) { console.warn('liveScene panel error:', tile.type, e); }
 
@@ -3881,6 +4039,23 @@
                         saveSettings(); p.redraw();
                     }
                 }
+                // ── Waiting scene drag ───────────────────────────────────────────
+                if (waitingSceneEditMode && isWatching && waitingScreenType === 'waitingScene') {
+                    if (p._wsDragTile) {
+                        let nx = (p.mouseX - p._wsDragOffX) / W;
+                        let ny = (p.mouseY - p._wsDragOffY) / H;
+                        if (p.keyIsDown(p.SHIFT)) { nx = Math.round(nx/0.05)*0.05; ny = Math.round(ny/0.05)*0.05; }
+                        p._wsDragTile.fx = p.constrain(nx, 0, 1 - p._wsDragTile.fsize * Math.min(W,H) / W);
+                        p._wsDragTile.fy = p.constrain(ny, 0, 1 - p._wsDragTile.fsize * Math.min(W,H) / H);
+                        saveSettings(); p.redraw();
+                    } else if (p._wsResizeTile) {
+                        const delta = (p.mouseX - p._wsResizeStartMx) / Math.min(W, H);
+                        let ns = p.constrain(p._wsResizeStartSize + delta, 0.05, 1.0);
+                        if (p.keyIsDown(p.SHIFT)) ns = Math.round(ns / 0.05) * 0.05;
+                        p._wsResizeTile.fsize = ns;
+                        saveSettings(); p.redraw();
+                    }
+                }
             };
 
             p.mousePressed = () => {
@@ -3915,6 +4090,21 @@
                         }
                     }
                 }
+                // ── Waiting scene ───────────────────────────────────────────────
+                if (waitingSceneEditMode && isWatching && waitingScreenType === 'waitingScene') {
+                    const hit = _freeTileHit(p.mouseX, p.mouseY, waitingSceneLayout.tiles, W, H);
+                    if (hit) {
+                        if (hit.zone === 'delete') { p._wsDeleteTile = hit.tile; }
+                        else if (hit.zone === 'resize') {
+                            p._wsResizeTile = hit.tile;
+                            p._wsResizeStartMx = p.mouseX; p._wsResizeStartSize = hit.tile.fsize;
+                        } else {
+                            p._wsDragTile = hit.tile;
+                            p._wsDragOffX = p.mouseX - hit.tile.fx * W;
+                            p._wsDragOffY = p.mouseY - hit.tile.fy * H;
+                        }
+                    }
+                }
             };
 
             p.mouseReleased = () => {
@@ -3933,12 +4123,24 @@
                 }
                 if (p._lsDragTile) renderLiveSceneTileList();
                 p._lsDeleteTile = null; p._lsDragTile = null; p._lsResizeTile = null;
+
+                // Waiting scene delete
+                if (p._wsDeleteTile && !p._wsDragTile && !p._wsResizeTile) {
+                    const idx = waitingSceneLayout.tiles.indexOf(p._wsDeleteTile);
+                    if (idx !== -1) { waitingSceneLayout.tiles.splice(idx, 1); saveSettings(); p.redraw(); renderWaitingSceneTileList(); }
+                }
+                if (p._wsDragTile) renderWaitingSceneTileList();
+                p._wsDeleteTile = null; p._wsDragTile = null; p._wsResizeTile = null;
             };
 
             // Init live scene drag state
             p._lsDragTile = null; p._lsResizeTile = null; p._lsDeleteTile = null;
             p._lsDragOffX = 0; p._lsDragOffY = 0;
             p._lsResizeStartMx = 0; p._lsResizeStartSize = 0;
+            // Init waiting scene drag state
+            p._wsDragTile = null; p._wsResizeTile = null; p._wsDeleteTile = null;
+            p._wsDragOffX = 0; p._wsDragOffY = 0;
+            p._wsResizeStartMx = 0; p._wsResizeStartSize = 0;
             // ── End dashboard drag/resize ────────────────────────────────────────
 
             // ── Keyboard shortcuts ───────────────────────────────────────────────
@@ -3946,7 +4148,8 @@
                 if (p.key === 'f' || p.key === 'F') {
                     const inDashEdit = dashboardEditMode && dashboardLayout.mode === 'free' && currentVisualization === 'auraDashboard';
                     const inLsEdit  = liveSceneEditMode && currentLiveVisualization === 'liveScene';
-                    if (inDashEdit || inLsEdit) {
+                    const inWsEdit  = waitingSceneEditMode && isWatching && waitingScreenType === 'waitingScene';
+                    if (inDashEdit || inLsEdit || inWsEdit) {
                         if (!document.fullscreenElement) {
                             p.canvas.requestFullscreen().catch(() => {});
                         } else {
@@ -4084,7 +4287,54 @@
 
                 // --- Installation Mode: Watching/Waiting State ---
                 if ((isWatching || sigilDissolving) && !isCollecting) {
-                    if (isWatching && waitingScreenType === 'vizPicker') {
+                    if (isWatching && waitingScreenType === 'waitingScene') {
+                        // --- Waiting Scene Layout Screen ---
+                        const bgHue2  = p.lerp(220, 35, p.constrain(
+                            triggerSensorIndices.filter(i => ((absoluteLatestData && absoluteLatestData[i]) || 0) > TRIGGER_THRESHOLD).length / TRIGGER_MIN_COUNT, 0, 1));
+                        const bgSat2  = p.lerp(20, 55, p.constrain(
+                            triggerSensorIndices.filter(i => ((absoluteLatestData && absoluteLatestData[i]) || 0) > TRIGGER_THRESHOLD).length / TRIGGER_MIN_COUNT, 0, 1));
+                        const bgBri2  = p.lerp(7, 14, p.constrain(
+                            triggerSensorIndices.filter(i => ((absoluteLatestData && absoluteLatestData[i]) || 0) > TRIGGER_THRESHOLD).length / TRIGGER_MIN_COUNT, 0, 1));
+                        p.background(bgHue2, bgSat2, bgBri2);
+                        const wsW = p.width, wsH = p.height;
+                        const wsData = absoluteLatestData;
+                        for (const tile of waitingSceneLayout.tiles) {
+                            const bsize = tile.fsize * Math.min(wsW, wsH);
+                            const bx = tile.fx * wsW;
+                            const by = tile.fy * wsH;
+                            const wcx = bx + bsize / 2;
+                            const wcy = by + bsize / 2;
+                            const wr  = bsize / 2;
+                            if (waitingSceneLayout.panelBg !== false) {
+                                p.noStroke(); p.fill(0, 0, 11, 0.9);
+                                p.ellipse(wcx, wcy, bsize, bsize);
+                            }
+                            if (tile.type !== 'empty') {
+                                liveScenePanelRender(tile, wsData, wcx, wcy, wr * 0.96);
+                            }
+                            // Edit handles
+                            if (waitingSceneEditMode && !capturingScreenshot) {
+                                const hw = 8;
+                                const isActive = p._wsDragTile === tile;
+                                p.noFill();
+                                p.stroke(isActive ? 45 : 0, isActive ? 90 : 0, isActive ? 90 : 20, isActive ? 0.9 : 0.35);
+                                p.strokeWeight(isActive ? 1.5 : 0.7);
+                                p.ellipse(wcx, wcy, bsize, bsize);
+                                p.noStroke(); p.fill(45, 70, 80, 0.85);
+                                p.rect(bx, by, bsize, 14, 4, 4, 0, 0);
+                                p.fill(0, 0, 90); p.noStroke();
+                                p.textAlign(p.LEFT, p.CENTER); p.textSize(9); p.textFont('sans-serif');
+                                p.text(LIVE_SCENE_PANEL_TYPES[tile.type] || tile.type, bx + 4, by + 7);
+                                p.textAlign(p.CENTER, p.CENTER);
+                                p.noStroke(); p.fill(0, 70, 80, 0.85);
+                                p.rect(bx + bsize - 14, by, 14, 14, 0, 4, 0, 0);
+                                p.fill(0, 0, 95); p.noStroke();
+                                p.textSize(10); p.text('×', bx + bsize - 7, by + 7);
+                                p.noStroke(); p.fill(180, 60, 80, 0.85);
+                                p.rect(bx + bsize - hw, by + bsize - hw, hw, hw, 2);
+                            }
+                        }
+                    } else if (isWatching && waitingScreenType === 'vizPicker') {
                         // --- Viz Picker Screen ---
                         p.colorMode(p.HSB, 360, 100, 100, 1);
                         p.background(220, 20, 8);
@@ -5544,6 +5794,104 @@
              }
 
              renderLiveSceneTileList();
+             // ─────────────────────────────────────────────────────────────────
+
+             // ─── Waiting Scene Layout editor ─────────────────────────────────
+             renderWaitingSceneTileList = function() {
+                 const list = document.getElementById('wsFreeTileList');
+                 if (!list) return;
+                 list.innerHTML = waitingSceneLayout.tiles.map((tile, i) => {
+                     const isText = tile.type === 'text';
+                     return `
+                     <div style="display:flex;flex-direction:column;gap:2px;margin-bottom:5px;border-bottom:1px solid #222;padding-bottom:4px;">
+                         <div style="display:flex;gap:3px;align-items:center;">
+                             <span style="font-size:9px;color:#555;width:14px;flex-shrink:0;">${i+1}</span>
+                             <select data-idx="${i}" class="wst-type" style="flex:2;font-size:10px;padding:1px 2px;">
+                                 ${Object.entries(LIVE_SCENE_PANEL_TYPES).map(([k,v]) =>
+                                     `<option value="${k}"${tile.type===k?' selected':''}>${v}</option>`).join('')}
+                             </select>
+                             <select data-idx="${i}" class="wst-ch" style="flex:1;font-size:10px;padding:1px 2px;" title="Channel">
+                                 ${Array.from({length:9}, (_,j) => {
+                                     const v = j - 1; const lbl = v < 0 ? 'All' : `Ch${v}`;
+                                     return `<option value="${v}"${tile.channel===v?' selected':''}>${lbl}</option>`;
+                                 }).join('')}
+                             </select>
+                             <button data-idx="${i}" class="wst-del" style="padding:1px 5px;background:#3b0f0f;color:#f87171;border-color:#4d1515;min-width:20px;">×</button>
+                         </div>
+                         ${isText ? `<input type="text" data-idx="${i}" class="wst-text"
+                             value="${(tile.text||'').replace(/"/g,'&quot;')}"
+                             placeholder="Instruction text…"
+                             style="font-size:10px;padding:2px 4px;background:#111;color:#ccc;border:1px solid #333;border-radius:3px;width:100%;box-sizing:border-box;">` : ''}
+                     </div>`;
+                 }).join('');
+
+                 list.querySelectorAll('.wst-type').forEach(el => el.addEventListener('change', e => {
+                     waitingSceneLayout.tiles[+e.target.dataset.idx].type = e.target.value;
+                     saveSettings(); renderWaitingSceneTileList(); if (p5Instance) p5Instance.redraw();
+                 }));
+                 list.querySelectorAll('.wst-ch').forEach(el => el.addEventListener('change', e => {
+                     waitingSceneLayout.tiles[+e.target.dataset.idx].channel = parseInt(e.target.value);
+                     saveSettings(); if (p5Instance) p5Instance.redraw();
+                 }));
+                 list.querySelectorAll('.wst-text').forEach(el => el.addEventListener('input', e => {
+                     waitingSceneLayout.tiles[+e.target.dataset.idx].text = e.target.value;
+                     saveSettings(); if (p5Instance) p5Instance.redraw();
+                 }));
+                 list.querySelectorAll('.wst-del').forEach(el => el.addEventListener('click', e => {
+                     waitingSceneLayout.tiles.splice(+e.target.dataset.idx, 1);
+                     renderWaitingSceneTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
+                 }));
+             };
+
+             function applyWsEditMode(on) {
+                 waitingSceneEditMode = on;
+                 const btn = document.getElementById('wsEditToggle');
+                 if (btn) {
+                     btn.style.background  = on ? '#0f2a1a' : '#1a1a1a';
+                     btn.style.color       = on ? '#4ade80' : '#555';
+                     btn.style.borderColor = on ? '#1a4d2a' : '#2a2a2a';
+                 }
+                 if (p5Instance) p5Instance.redraw();
+             }
+
+             document.getElementById('wsEditToggle')?.addEventListener('click', () => applyWsEditMode(!waitingSceneEditMode));
+
+             document.getElementById('wsAddTileBtn')?.addEventListener('click', () => {
+                 waitingSceneLayout.tiles.push({
+                     id: Date.now().toString(), fx: 0.1, fy: 0.1, fsize: 0.25,
+                     type: 'ws_sigil', channel: -1, text: ''
+                 });
+                 renderWaitingSceneTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
+             });
+
+             document.getElementById('wsResetBtn')?.addEventListener('click', () => {
+                 waitingSceneLayout = JSON.parse(JSON.stringify(WAITING_SCENE_DEFAULT_LAYOUT));
+                 const bgCheck = document.getElementById('wsPanelBgCheck');
+                 if (bgCheck) bgCheck.checked = waitingSceneLayout.panelBg !== false;
+                 renderWaitingSceneTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
+             });
+
+             const wsPanelBgCheck = document.getElementById('wsPanelBgCheck');
+             if (wsPanelBgCheck) {
+                 wsPanelBgCheck.checked = waitingSceneLayout.panelBg !== false;
+                 wsPanelBgCheck.addEventListener('change', () => {
+                     waitingSceneLayout.panelBg = wsPanelBgCheck.checked;
+                     saveSettings(); if (p5Instance) p5Instance.redraw();
+                 });
+             }
+
+             renderWaitingSceneTileList();
+
+             // Show/hide waiting scene config section when screen type radio changes
+             function updateWaitingSceneConfigVisibility() {
+                 const sec = document.getElementById('waitingSceneConfigSection');
+                 if (sec) sec.style.display = waitingScreenType === 'waitingScene' ? '' : 'none';
+             }
+             updateWaitingSceneConfigVisibility();
+             // Hook into the radio buttons already wired above
+             document.querySelectorAll('input[name="waitingScreen"]').forEach(r => {
+                 r.addEventListener('change', updateWaitingSceneConfigVisibility);
+             });
              // ─────────────────────────────────────────────────────────────────
 
              // Live data monitor — refresh sidebar every 100ms
