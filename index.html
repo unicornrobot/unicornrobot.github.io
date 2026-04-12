@@ -111,17 +111,63 @@
             height: 100% !important;
         }
 
-        /* ── Sidebar section headings ── */
-        .sidebar-section-title {
+        /* ── Sidebar sections — collapsible + reorderable ── */
+        .sb-section {
+            display: flex;
+            flex-direction: column;
+        }
+        .sb-section.sb-drag-over {
+            outline: 1px dashed #444;
+            outline-offset: -1px;
+            border-radius: 4px;
+        }
+        .sb-section-header {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+            padding-bottom: 4px;
+            border-bottom: 1px solid #222;
+            margin-bottom: 6px;
+            user-select: none;
+        }
+        .sb-section-header:hover .sb-drag-handle { color: #555; }
+        .sb-drag-handle {
+            color: #2e2e2e;
+            font-size: 13px;
+            line-height: 1;
+            cursor: grab;
+            flex-shrink: 0;
+            transition: color 0.15s;
+        }
+        .sb-drag-handle:active { cursor: grabbing; }
+        .sb-section-title {
             font-size: 10px;
             font-weight: 700;
             letter-spacing: 0.1em;
             text-transform: uppercase;
             color: #555;
-            padding-bottom: 4px;
-            border-bottom: 1px solid #222;
-            margin-bottom: 6px;
+            flex: 1;
         }
+        .sb-chevron {
+            color: #333;
+            font-size: 9px;
+            flex-shrink: 0;
+            transition: transform 0.18s ease, color 0.15s;
+        }
+        .sb-section.sb-collapsed .sb-chevron { transform: rotate(-90deg); }
+        .sb-section-body {
+            overflow: hidden;
+            transition: max-height 0.22s ease, opacity 0.18s ease;
+            max-height: 2000px;
+            opacity: 1;
+        }
+        .sb-section.sb-collapsed .sb-section-body {
+            max-height: 0 !important;
+            opacity: 0;
+        }
+        /* Legacy class — kept so existing JS references still resolve */
+        .sidebar-section-title { display: none; }
 
         /* ── Control overrides for dark sidebar ── */
         #sidebar button, #sidebar select, #sidebar input[type="number"],
@@ -186,263 +232,330 @@
             </div>
 
             <!-- Connection -->
-            <div>
-                <div class="sidebar-section-title">Connection</div>
-                <button id="connectButton" style="width:100%; background:#1e3a5f; color:#7ec8ff; border-color:#1e3a5f;">Connect to Serial Device</button>
-                <div id="status" class="status-indicator status-disconnected" style="margin-top:6px;">Disconnected</div>
-                <div id="errorDisplay" class="status-indicator status-error" style="display:none; margin-top:4px;"></div>
+            <div class="sb-section" data-key="connection">
+                <div class="sb-section-header">
+                    <span class="sb-drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="sb-section-title">Connection</span>
+                    <span class="sb-chevron">▾</span>
+                </div>
+                <div class="sb-section-body">
+                    <button id="connectButton" style="width:100%; background:#1e3a5f; color:#7ec8ff; border-color:#1e3a5f;">Connect to Serial Device</button>
+                    <div id="status" class="status-indicator status-disconnected" style="margin-top:6px;">Disconnected</div>
+                    <div id="errorDisplay" class="status-indicator status-error" style="display:none; margin-top:4px;"></div>
+                </div>
             </div>
 
             <!-- Collection -->
-            <div>
-                <div class="sidebar-section-title">Collection</div>
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
-                    <label for="collectDuration" style="flex-shrink:0;">Duration (s):</label>
-                    <input type="number" id="collectDuration" value="10" min="1" style="width:60px;">
+            <div class="sb-section" data-key="collection">
+                <div class="sb-section-header">
+                    <span class="sb-drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="sb-section-title">Collection</span>
+                    <span class="sb-chevron">▾</span>
                 </div>
-                <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
-                    <input type="checkbox" id="collectIndefinitely">
-                    <label for="collectIndefinitely">Collect Indefinitely</label>
+                <div class="sb-section-body">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                        <label for="collectDuration" style="flex-shrink:0;">Duration (s):</label>
+                        <input type="number" id="collectDuration" value="10" min="1" style="width:60px;">
+                    </div>
+                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+                        <input type="checkbox" id="collectIndefinitely">
+                        <label for="collectIndefinitely">Collect Indefinitely</label>
+                    </div>
+                    <div style="display:flex; gap:6px;">
+                        <button id="startButton" disabled style="flex:1; background:#0f2b1a; color:#4ade80; border-color:#1a3d26;">Start</button>
+                        <button id="stopButton"  disabled style="flex:1; background:#3b0f0f; color:#f87171; border-color:#4d1515;">Stop</button>
+                    </div>
+                    <div id="dataCount" style="margin-top:6px; font-size:11px; color:#555; text-align:center;">Data points: 0</div>
                 </div>
-                <div style="display:flex; gap:6px;">
-                    <button id="startButton" disabled style="flex:1; background:#0f2b1a; color:#4ade80; border-color:#1a3d26;">Start</button>
-                    <button id="stopButton"  disabled style="flex:1; background:#3b0f0f; color:#f87171; border-color:#4d1515;">Stop</button>
-                </div>
-                <div id="dataCount" style="margin-top:6px; font-size:11px; color:#555; text-align:center;">Data points: 0</div>
             </div>
 
             <!-- Visualisation -->
-            <div>
-                <div class="sidebar-section-title">Visualisation</div>
-
-                <!-- Data Read (live) -->
-                <div style="margin-bottom:8px;">
-                    <label for="liveVizSelect" style="display:block; margin-bottom:3px;">Data Read</label>
-                    <select id="liveVizSelect" style="width:100%;"></select>
+            <div class="sb-section" data-key="visualisation">
+                <div class="sb-section-header">
+                    <span class="sb-drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="sb-section-title">Visualisation</span>
+                    <span class="sb-chevron">▾</span>
                 </div>
-
-                <!-- Results (final) -->
-                <div style="margin-bottom:8px;">
-                    <label for="vizSelect" style="display:block; margin-bottom:3px;">Results</label>
-                    <select id="vizSelect" style="width:100%;"></select>
-                </div>
-
-                <!-- Viz toggles (collapsible) -->
-                <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;cursor:pointer;" id="vizToggleHeader">
-                    <input type="checkbox" id="showVizToggles">
-                    <label for="showVizToggles" style="cursor:pointer;font-size:11px;color:#666;">Manage Vizzes</label>
-                </div>
-                <div id="vizTogglePanel" style="display:none;">
-                    <div style="font-size:10px;color:#555;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.08em;">Data Read</div>
-                    <div id="liveVizToggles" style="margin-bottom:8px;"></div>
-                    <div style="font-size:10px;color:#555;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.08em;">Results</div>
-                    <div id="resultsVizToggles"></div>
-                    <div style="font-size:10px;color:#555;margin-top:8px;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.08em;">Waiting Screen</div>
-                    <div id="waitingScreenRadios"></div>
+                <div class="sb-section-body">
+                    <div style="margin-bottom:8px;">
+                        <label for="liveVizSelect" style="display:block; margin-bottom:3px;">Data Read</label>
+                        <select id="liveVizSelect" style="width:100%;"></select>
+                    </div>
+                    <div style="margin-bottom:8px;">
+                        <label for="vizSelect" style="display:block; margin-bottom:3px;">Results</label>
+                        <select id="vizSelect" style="width:100%;"></select>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;cursor:pointer;" id="vizToggleHeader">
+                        <input type="checkbox" id="showVizToggles">
+                        <label for="showVizToggles" style="cursor:pointer;font-size:11px;color:#666;">Manage Vizzes</label>
+                    </div>
+                    <div id="vizTogglePanel" style="display:none;">
+                        <div style="font-size:10px;color:#555;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.08em;">Data Read</div>
+                        <div id="liveVizToggles" style="margin-bottom:8px;"></div>
+                        <div style="font-size:10px;color:#555;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.08em;">Results</div>
+                        <div id="resultsVizToggles"></div>
+                        <div style="font-size:10px;color:#555;margin-top:8px;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.08em;">Waiting Screen</div>
+                        <div id="waitingScreenRadios"></div>
+                    </div>
                 </div>
             </div>
 
             <!-- Color Palette -->
-            <div>
-                <div class="sidebar-section-title">Color Palette</div>
-                <div style="display:flex; flex-direction:column; gap:5px;">
-                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px;">
-                        <input type="radio" name="paletteMode" value="default" checked> Default
-                    </label>
-                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px;">
-                        <input type="radio" name="paletteMode" value="avgMapped"> Reading-mapped
-                    </label>
-                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px;">
-                        <input type="radio" name="paletteMode" value="harmonious"> Harmonious
-                    </label>
+            <div class="sb-section" data-key="palette">
+                <div class="sb-section-header">
+                    <span class="sb-drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="sb-section-title">Color Palette</span>
+                    <span class="sb-chevron">▾</span>
                 </div>
-                <div id="harmonicsPaletteRow" style="margin-top:6px; display:none;">
-                    <select id="harmonicsPaletteSelect" style="width:100%; font-size:11px;"></select>
+                <div class="sb-section-body">
+                    <div style="display:flex; flex-direction:column; gap:5px;">
+                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px;">
+                            <input type="radio" name="paletteMode" value="default" checked> Default
+                        </label>
+                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px;">
+                            <input type="radio" name="paletteMode" value="avgMapped"> Reading-mapped
+                        </label>
+                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:11px;">
+                            <input type="radio" name="paletteMode" value="harmonious"> Harmonious
+                        </label>
+                    </div>
+                    <div id="harmonicsPaletteRow" style="margin-top:6px; display:none;">
+                        <select id="harmonicsPaletteSelect" style="width:100%; font-size:11px;"></select>
+                    </div>
+                    <div id="paletteSwatch" style="display:flex; gap:2px; margin-top:7px; height:12px; border-radius:3px; overflow:hidden;"></div>
                 </div>
-                <!-- Live swatch preview -->
-                <div id="paletteSwatch" style="display:flex; gap:2px; margin-top:7px; height:12px; border-radius:3px; overflow:hidden;"></div>
             </div>
 
             <!-- Dashboard Layout Config (shown when auraDashboard is selected) -->
-            <div id="dashboardConfigSection" style="display:none;">
-                <div class="sidebar-section-title">Dashboard Layout</div>
-                <!-- Mode toggle -->
-                <div style="display:flex; gap:4px; margin-bottom:8px;">
-                    <button id="dashModeGrid" style="flex:1; font-size:10px; padding:3px 4px;">Grid</button>
-                    <button id="dashModeFree" style="flex:1; font-size:10px; padding:3px 4px; background:#1a1a1a; color:#555; border-color:#2a2a2a;">Free</button>
-                    <button id="dashEditToggle" style="flex:1; font-size:10px; padding:3px 4px; background:#1a1a1a; color:#555; border-color:#2a2a2a;" title="Toggle drag/resize handles on canvas">Edit</button>
+            <div class="sb-section" data-key="dashboard" id="dashboardConfigSection" style="display:none;">
+                <div class="sb-section-header">
+                    <span class="sb-drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="sb-section-title">Dashboard Layout</span>
+                    <span class="sb-chevron">▾</span>
                 </div>
-                <!-- Grid mode controls -->
-                <div id="dashGridControls">
-                    <div style="display:flex; align-items:center; gap:5px; margin-bottom:6px; font-size:11px; color:#666;">
-                        Grid:
-                        <input type="number" id="dashCols" value="4" min="1" max="8" style="width:30px; text-align:center; padding:2px;" title="Columns">
-                        <span>×</span>
-                        <input type="number" id="dashRows" value="3" min="1" max="8" style="width:30px; text-align:center; padding:2px;" title="Rows">
-                        <span style="color:#444;">cells</span>
+                <div class="sb-section-body">
+                    <div style="display:flex; gap:4px; margin-bottom:8px;">
+                        <button id="dashModeGrid" style="flex:1; font-size:10px; padding:3px 4px;">Grid</button>
+                        <button id="dashModeFree" style="flex:1; font-size:10px; padding:3px 4px; background:#1a1a1a; color:#555; border-color:#2a2a2a;">Free</button>
+                        <button id="dashEditToggle" style="flex:1; font-size:10px; padding:3px 4px; background:#1a1a1a; color:#555; border-color:#2a2a2a;" title="Toggle drag/resize handles on canvas">Edit</button>
                     </div>
-                    <div style="display:flex; gap:4px; font-size:9px; color:#444; margin-bottom:3px; padding:0 2px;">
-                        <span style="width:26px; text-align:center;">Col</span>
-                        <span style="width:26px; text-align:center;">Row</span>
-                        <span style="width:26px; text-align:center;">CW</span>
-                        <span style="width:26px; text-align:center;">RH</span>
-                        <span style="flex:1; padding-left:2px;">Type</span>
+                    <div id="dashGridControls">
+                        <div style="display:flex; align-items:center; gap:5px; margin-bottom:6px; font-size:11px; color:#666;">
+                            Grid:
+                            <input type="number" id="dashCols" value="4" min="1" max="8" style="width:30px; text-align:center; padding:2px;" title="Columns">
+                            <span>×</span>
+                            <input type="number" id="dashRows" value="3" min="1" max="8" style="width:30px; text-align:center; padding:2px;" title="Rows">
+                            <span style="color:#444;">cells</span>
+                        </div>
+                        <div style="display:flex; gap:4px; font-size:9px; color:#444; margin-bottom:3px; padding:0 2px;">
+                            <span style="width:26px; text-align:center;">Col</span>
+                            <span style="width:26px; text-align:center;">Row</span>
+                            <span style="width:26px; text-align:center;">CW</span>
+                            <span style="width:26px; text-align:center;">RH</span>
+                            <span style="flex:1; padding-left:2px;">Type</span>
+                        </div>
+                        <div id="dashTileList" style="max-height:200px; overflow-y:auto; margin-bottom:6px;"></div>
                     </div>
-                    <div id="dashTileList" style="max-height:200px; overflow-y:auto; margin-bottom:6px;"></div>
+                    <div id="dashFreeControls" style="display:none;">
+                        <div style="font-size:9px; color:#444; margin-bottom:4px;">Drag · resize corner · Shift=snap · F=fullscreen</div>
+                        <div id="dashFreeTileList" style="max-height:200px; overflow-y:auto; margin-bottom:6px;"></div>
+                    </div>
+                    <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:#555; margin-bottom:6px; cursor:pointer;">
+                        <input type="checkbox" id="dashPanelBgCheck" checked style="margin:0;">
+                        Panel background
+                    </label>
+                    <div style="display:flex; gap:6px;">
+                        <button id="dashAddTileBtn" style="flex:1;">+ Tile</button>
+                        <button id="dashResetBtn" style="flex:1; background:#1a1a1a; color:#555; border-color:#2a2a2a;">Reset</button>
+                    </div>
                 </div>
-                <!-- Free mode tile list -->
-                <div id="dashFreeControls" style="display:none;">
+            </div>
+
+            <!-- Waiting Scene Layout Config -->
+            <div class="sb-section" data-key="waitingScene" id="waitingSceneConfigSection" style="display:none;">
+                <div class="sb-section-header">
+                    <span class="sb-drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="sb-section-title">Waiting Scene Layout</span>
+                    <span class="sb-chevron">▾</span>
+                </div>
+                <div class="sb-section-body">
+                    <div style="display:flex; gap:4px; margin-bottom:8px;">
+                        <button id="wsEditToggle" style="flex:1; font-size:10px; padding:3px 4px; background:#1a1a1a; color:#555; border-color:#2a2a2a;" title="Toggle drag/resize handles on canvas">Edit</button>
+                    </div>
                     <div style="font-size:9px; color:#444; margin-bottom:4px;">Drag · resize corner · Shift=snap · F=fullscreen</div>
-                    <div id="dashFreeTileList" style="max-height:200px; overflow-y:auto; margin-bottom:6px;"></div>
-                </div>
-                <!-- Panel background toggle (both modes) -->
-                <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:#555; margin-bottom:6px; cursor:pointer;">
-                    <input type="checkbox" id="dashPanelBgCheck" checked style="margin:0;">
-                    Panel background
-                </label>
-                <div style="display:flex; gap:6px;">
-                    <button id="dashAddTileBtn" style="flex:1;">+ Tile</button>
-                    <button id="dashResetBtn" style="flex:1; background:#1a1a1a; color:#555; border-color:#2a2a2a;">Reset</button>
-                </div>
-            </div>
-
-            <!-- Waiting Scene Layout Config (shown when waitingScene screen type is selected) -->
-            <div id="waitingSceneConfigSection" style="display:none;">
-                <div class="sidebar-section-title">Waiting Scene Layout</div>
-                <div style="display:flex; gap:4px; margin-bottom:8px;">
-                    <button id="wsEditToggle" style="flex:1; font-size:10px; padding:3px 4px; background:#1a1a1a; color:#555; border-color:#2a2a2a;" title="Toggle drag/resize handles on canvas">Edit</button>
-                </div>
-                <div style="font-size:9px; color:#444; margin-bottom:4px;">Drag · resize corner · Shift=snap · F=fullscreen</div>
-                <div id="wsFreeTileList" style="max-height:240px; overflow-y:auto; margin-bottom:6px;"></div>
-                <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:#555; margin-bottom:6px; cursor:pointer;">
-                    <input type="checkbox" id="wsPanelBgCheck" style="margin:0;">
-                    Circle background
-                </label>
-                <div style="display:flex; gap:6px;">
-                    <button id="wsAddTileBtn" style="flex:1;">+ Panel</button>
-                    <button id="wsResetBtn" style="flex:1; background:#1a1a1a; color:#555; border-color:#2a2a2a;">Reset</button>
-                </div>
-            </div>
-
-            <!-- Live Scene Layout Config (shown when liveScene is selected) -->
-            <div id="liveSceneConfigSection" style="display:none;">
-                <div class="sidebar-section-title">Live Scene Layout</div>
-                <div style="display:flex; gap:4px; margin-bottom:8px;">
-                    <button id="lsEditToggle" style="flex:1; font-size:10px; padding:3px 4px; background:#1a1a1a; color:#555; border-color:#2a2a2a;" title="Toggle drag/resize handles on canvas">Edit</button>
-                </div>
-                <div style="font-size:9px; color:#444; margin-bottom:4px;">Drag · resize corner · Shift=snap · F=fullscreen</div>
-                <div id="lsFreeTileList" style="max-height:240px; overflow-y:auto; margin-bottom:6px;"></div>
-                <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:#555; margin-bottom:6px; cursor:pointer;">
-                    <input type="checkbox" id="lsPanelBgCheck" style="margin:0;">
-                    Circle background
-                </label>
-                <div style="display:flex; gap:6px;">
-                    <button id="lsAddTileBtn" style="flex:1;">+ Panel</button>
-                    <button id="lsResetBtn" style="flex:1; background:#1a1a1a; color:#555; border-color:#2a2a2a;">Reset</button>
-                </div>
-            </div>
-
-            <!-- Overlay controls (shown only for Woven Tapestry Overlay) -->
-            <div id="overlayControlsContainer" style="display:none;">
-                <div class="sidebar-section-title">Overlay Settings</div>
-                <div style="display:flex; flex-direction:column; gap:8px;">
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <label style="flex:1;">Height</label>
-                        <input type="range" id="overlayWeftHeightSlider" min="1" max="10" value="4" step="1" style="flex:2; padding:0;">
-                        <span id="overlayWeftHeightValue" style="width:18px; text-align:right; color:#666;">4</span>
+                    <div id="wsFreeTileList" style="max-height:240px; overflow-y:auto; margin-bottom:6px;"></div>
+                    <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:#555; margin-bottom:6px; cursor:pointer;">
+                        <input type="checkbox" id="wsPanelBgCheck" style="margin:0;">
+                        Circle background
+                    </label>
+                    <div style="display:flex; gap:6px;">
+                        <button id="wsAddTileBtn" style="flex:1;">+ Panel</button>
+                        <button id="wsResetBtn" style="flex:1; background:#1a1a1a; color:#555; border-color:#2a2a2a;">Reset</button>
                     </div>
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <label style="flex:1;">Opacity</label>
-                        <input type="range" id="overlayOpacitySlider" min="0.05" max="1" value="0.7" step="0.05" style="flex:2; padding:0;">
-                        <span id="overlayOpacityValue" style="width:28px; text-align:right; color:#666;">0.7</span>
+                </div>
+            </div>
+
+            <!-- Live Scene Layout Config -->
+            <div class="sb-section" data-key="liveScene" id="liveSceneConfigSection" style="display:none;">
+                <div class="sb-section-header">
+                    <span class="sb-drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="sb-section-title">Live Scene Layout</span>
+                    <span class="sb-chevron">▾</span>
+                </div>
+                <div class="sb-section-body">
+                    <div style="display:flex; gap:4px; margin-bottom:8px;">
+                        <button id="lsEditToggle" style="flex:1; font-size:10px; padding:3px 4px; background:#1a1a1a; color:#555; border-color:#2a2a2a;" title="Toggle drag/resize handles on canvas">Edit</button>
                     </div>
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <label style="flex:1;">Speed</label>
-                        <input type="range" id="overlaySpeedSlider" min="0.1" max="5" value="1" step="0.1" style="flex:2; padding:0;">
-                        <span id="overlaySpeedValue" style="width:28px; text-align:right; color:#666;">1.0</span>
+                    <div style="font-size:9px; color:#444; margin-bottom:4px;">Drag · resize corner · Shift=snap · F=fullscreen</div>
+                    <div id="lsFreeTileList" style="max-height:240px; overflow-y:auto; margin-bottom:6px;"></div>
+                    <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:#555; margin-bottom:6px; cursor:pointer;">
+                        <input type="checkbox" id="lsPanelBgCheck" style="margin:0;">
+                        Circle background
+                    </label>
+                    <div style="display:flex; gap:6px;">
+                        <button id="lsAddTileBtn" style="flex:1;">+ Panel</button>
+                        <button id="lsResetBtn" style="flex:1; background:#1a1a1a; color:#555; border-color:#2a2a2a;">Reset</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Overlay Settings -->
+            <div class="sb-section" data-key="overlay" id="overlayControlsContainer" style="display:none;">
+                <div class="sb-section-header">
+                    <span class="sb-drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="sb-section-title">Overlay Settings</span>
+                    <span class="sb-chevron">▾</span>
+                </div>
+                <div class="sb-section-body">
+                    <div style="display:flex; flex-direction:column; gap:8px;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <label style="flex:1;">Height</label>
+                            <input type="range" id="overlayWeftHeightSlider" min="1" max="10" value="4" step="1" style="flex:2; padding:0;">
+                            <span id="overlayWeftHeightValue" style="width:18px; text-align:right; color:#666;">4</span>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <label style="flex:1;">Opacity</label>
+                            <input type="range" id="overlayOpacitySlider" min="0.05" max="1" value="0.7" step="0.05" style="flex:2; padding:0;">
+                            <span id="overlayOpacityValue" style="width:28px; text-align:right; color:#666;">0.7</span>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <label style="flex:1;">Speed</label>
+                            <input type="range" id="overlaySpeedSlider" min="0.1" max="5" value="1" step="0.1" style="flex:2; padding:0;">
+                            <span id="overlaySpeedValue" style="width:28px; text-align:right; color:#666;">1.0</span>
+                        </div>
                     </div>
                 </div>
             </div>
 
             <!-- Installation Mode -->
-            <div>
-                <div class="sidebar-section-title">Installation Mode</div>
-                <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
-                    <input type="checkbox" id="installationModeCheckbox">
-                    <label for="installationModeCheckbox">Enable</label>
+            <div class="sb-section" data-key="installation">
+                <div class="sb-section-header">
+                    <span class="sb-drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="sb-section-title">Installation Mode</span>
+                    <span class="sb-chevron">▾</span>
                 </div>
-                <div id="triggerSensorsContainer" style="display:none; flex-direction:column; gap:6px;">
-                    <label for="triggerSensorsInput" style="display:block; margin-bottom:3px; font-size:11px;">Trigger sensor indices</label>
-                    <input type="text" id="triggerSensorsInput" value="0,1,2,3,4" style="width:100%;" placeholder="e.g. 0,1,2,3,4">
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <label style="flex:1; font-size:11px;">Min count</label>
-                        <input type="number" id="triggerMinCount" value="3" min="1" max="32" style="width:52px;">
+                <div class="sb-section-body">
+                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+                        <input type="checkbox" id="installationModeCheckbox">
+                        <label for="installationModeCheckbox">Enable</label>
                     </div>
-                    <div style="display:flex; align-items:center; gap:8px;">
-                        <label style="flex:1; font-size:11px;">Threshold</label>
-                        <input type="number" id="triggerThreshold" value="150" min="0" max="360" style="width:52px;">
-                    </div>
-                    <div style="border-top:1px solid #222; margin-top:4px; padding-top:6px; display:flex; flex-direction:column; gap:6px;">
-                        <div style="display:flex; align-items:center; gap:6px;">
-                            <input type="checkbox" id="autoSceneChangeCheckbox" checked>
-                            <label for="autoSceneChangeCheckbox" style="font-size:11px;">Auto scene change</label>
+                    <div id="triggerSensorsContainer" style="display:none; flex-direction:column; gap:6px;">
+                        <label for="triggerSensorsInput" style="display:block; margin-bottom:3px; font-size:11px;">Trigger sensor indices</label>
+                        <input type="text" id="triggerSensorsInput" value="0,1,2,3,4" style="width:100%;" placeholder="e.g. 0,1,2,3,4">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <label style="flex:1; font-size:11px;">Min count</label>
+                            <input type="number" id="triggerMinCount" value="3" min="1" max="32" style="width:52px;">
                         </div>
-                        <div style="display:flex; align-items:center; gap:8px;" id="sceneChangeDurationRow">
-                            <label style="flex:1; font-size:11px;">After (s)</label>
-                            <input type="number" id="displayHoldSeconds" value="8" min="1" style="width:52px;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <label style="flex:1; font-size:11px;">Threshold</label>
+                            <input type="number" id="triggerThreshold" value="150" min="0" max="360" style="width:52px;">
+                        </div>
+                        <div style="border-top:1px solid #222; margin-top:4px; padding-top:6px; display:flex; flex-direction:column; gap:6px;">
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="autoSceneChangeCheckbox" checked>
+                                <label for="autoSceneChangeCheckbox" style="font-size:11px;">Auto scene change</label>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:8px;" id="sceneChangeDurationRow">
+                                <label style="flex:1; font-size:11px;">After (s)</label>
+                                <input type="number" id="displayHoldSeconds" value="8" min="1" style="width:52px;">
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
 
             <!-- Device Config -->
-            <div>
-                <div class="sidebar-section-title">Device Config</div>
-                <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
-                    <input type="checkbox" id="showDeviceConfigCheckbox">
-                    <label for="showDeviceConfigCheckbox">Show Channel Config</label>
+            <div class="sb-section" data-key="device">
+                <div class="sb-section-header">
+                    <span class="sb-drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="sb-section-title">Device Config</span>
+                    <span class="sb-chevron">▾</span>
                 </div>
-                <div id="deviceConfigPanel" style="display:none;">
+                <div class="sb-section-body">
                     <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
-                        <label>Channels:</label>
-                        <input type="number" id="deviceChannelCount" value="8" min="1" max="32" style="width:52px;">
-                        <button id="applyChannelCount" style="background:#1a237e; color:#90caf9; border-color:#1a237e; padding:4px 8px;">Apply</button>
+                        <input type="checkbox" id="showDeviceConfigCheckbox">
+                        <label for="showDeviceConfigCheckbox">Show Channel Config</label>
                     </div>
-                    <div id="deviceConfigRows"></div>
+                    <div id="deviceConfigPanel" style="display:none;">
+                        <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+                            <label>Channels:</label>
+                            <input type="number" id="deviceChannelCount" value="8" min="1" max="32" style="width:52px;">
+                            <button id="applyChannelCount" style="background:#1a237e; color:#90caf9; border-color:#1a237e; padding:4px 8px;">Apply</button>
+                        </div>
+                        <div id="deviceConfigRows"></div>
+                    </div>
                 </div>
             </div>
 
             <!-- Gallery -->
-            <div>
-                <div class="sidebar-section-title">Gallery</div>
-                <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
-                    <input type="checkbox" id="autoSaveCheckbox" checked>
-                    <label for="autoSaveCheckbox">Auto-save results</label>
+            <div class="sb-section" data-key="gallery">
+                <div class="sb-section-header">
+                    <span class="sb-drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="sb-section-title">Gallery</span>
+                    <span class="sb-chevron">▾</span>
                 </div>
-                <div id="gallerySaveCount" style="font-size:11px; color:#555; margin-bottom:6px;">Saved: 0 readings</div>
-                <div style="display:flex; gap:6px; margin-bottom:6px;">
-                    <a href="gallery.html" target="_blank" style="flex:1; display:block; padding:5px 8px; border-radius:5px; border:1px solid #2a2a2a; background:#1a1a1a; color:#bbb; font-size:12px; text-align:center; text-decoration:none; cursor:pointer;">Open Gallery</a>
-                </div>
-                <div style="display:flex; gap:6px;">
-                    <button id="exportReadingsBtn" style="flex:1; background:#1a237e; color:#90caf9; border-color:#1a237e;">Export JSON</button>
-                    <button id="clearReadingsBtn"  style="flex:1; background:#3b0f0f; color:#f87171; border-color:#4d1515;">Clear All</button>
+                <div class="sb-section-body">
+                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+                        <input type="checkbox" id="autoSaveCheckbox" checked>
+                        <label for="autoSaveCheckbox">Auto-save results</label>
+                    </div>
+                    <div id="gallerySaveCount" style="font-size:11px; color:#555; margin-bottom:6px;">Saved: 0 readings</div>
+                    <div style="display:flex; gap:6px; margin-bottom:6px;">
+                        <a href="gallery.html" target="_blank" style="flex:1; display:block; padding:5px 8px; border-radius:5px; border:1px solid #2a2a2a; background:#1a1a1a; color:#bbb; font-size:12px; text-align:center; text-decoration:none; cursor:pointer;">Open Gallery</a>
+                    </div>
+                    <div style="display:flex; gap:6px;">
+                        <button id="exportReadingsBtn" style="flex:1; background:#1a237e; color:#90caf9; border-color:#1a237e;">Export JSON</button>
+                        <button id="clearReadingsBtn"  style="flex:1; background:#3b0f0f; color:#f87171; border-color:#4d1515;">Clear All</button>
+                    </div>
                 </div>
             </div>
 
             <!-- Live Data Monitor -->
-            <div>
-                <div class="sidebar-section-title">Live Data</div>
-                <div id="liveDataMonitor" style="font-family:monospace; font-size:11px; line-height:1.7;">
-                    <span style="color:#444;">— no data —</span>
+            <div class="sb-section" data-key="livedata">
+                <div class="sb-section-header">
+                    <span class="sb-drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="sb-section-title">Live Data</span>
+                    <span class="sb-chevron">▾</span>
+                </div>
+                <div class="sb-section-body">
+                    <div id="liveDataMonitor" style="font-family:monospace; font-size:11px; line-height:1.7;">
+                        <span style="color:#444;">— no data —</span>
+                    </div>
                 </div>
             </div>
 
             <!-- Debug -->
-            <div>
-                <div class="sidebar-section-title">Debug</div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                    <input type="checkbox" id="debugModeCheckbox">
-                    <label for="debugModeCheckbox">Debug Raw Values</label>
+            <div class="sb-section" data-key="debug">
+                <div class="sb-section-header">
+                    <span class="sb-drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="sb-section-title">Debug</span>
+                    <span class="sb-chevron">▾</span>
+                </div>
+                <div class="sb-section-body">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                        <input type="checkbox" id="debugModeCheckbox">
+                        <label for="debugModeCheckbox">Debug Raw Values</label>
+                    </div>
                 </div>
             </div>
 
@@ -1264,18 +1377,18 @@
             // Update visibility of the *single* overlay controls container
             const showOverlayControls = liveVizSelect.value === 'wovenTapestryOverlay';
             if (overlayControlsContainer) { // Check if the container exists
-                overlayControlsContainer.style.display = showOverlayControls ? 'flex' : 'none'; // Use flex when showing
+                overlayControlsContainer.style.display = showOverlayControls ? '' : 'none';
             }
 
             // Show dashboard layout config only when auraDashboard is selected
             const dashSection = document.getElementById('dashboardConfigSection');
             if (dashSection) {
-                dashSection.style.display = vizSelect.value === 'auraDashboard' ? 'block' : 'none';
+                dashSection.style.display = vizSelect.value === 'auraDashboard' ? '' : 'none';
             }
             // Show live scene config only when liveScene is selected
             const lsSection = document.getElementById('liveSceneConfigSection');
             if (lsSection) {
-                lsSection.style.display = liveVizSelect.value === 'liveScene' ? 'block' : 'none';
+                lsSection.style.display = liveVizSelect.value === 'liveScene' ? '' : 'none';
             }
 
             // Show trigger sensor input only when installation mode is on
@@ -5894,6 +6007,103 @@
              document.querySelectorAll('input[name="waitingScreen"]').forEach(r => {
                  r.addEventListener('change', updateWaitingSceneConfigVisibility);
              });
+             // ─────────────────────────────────────────────────────────────────
+
+             // ─── Sidebar section manager: collapse + drag-to-reorder ─────────
+             (function initSidebarSections() {
+                 const STORAGE_KEY = 'sidebarSectionState';
+                 const inner = document.getElementById('sidebarInner');
+
+                 // Load persisted state: { order: [key,...], collapsed: [key,...] }
+                 let state = { order: [], collapsed: [] };
+                 try { state = JSON.parse(localStorage.getItem(STORAGE_KEY)) || state; } catch(e) {}
+
+                 // Restore order — move sections to match saved sequence
+                 if (state.order && state.order.length) {
+                     const byKey = {};
+                     inner.querySelectorAll('.sb-section[data-key]').forEach(el => {
+                         byKey[el.dataset.key] = el;
+                     });
+                     // Append in saved order (keys missing from state go to the end, already in place)
+                     state.order.forEach(key => {
+                         if (byKey[key]) inner.appendChild(byKey[key]);
+                     });
+                 }
+
+                 // Restore collapsed state
+                 const collapsedSet = new Set(state.collapsed || []);
+
+                 function saveState() {
+                     const order = [...inner.querySelectorAll('.sb-section[data-key]')]
+                         .map(el => el.dataset.key);
+                     const collapsed = [...inner.querySelectorAll('.sb-section.sb-collapsed[data-key]')]
+                         .map(el => el.dataset.key);
+                     localStorage.setItem(STORAGE_KEY, JSON.stringify({ order, collapsed }));
+                 }
+
+                 function applyCollapsed(section, on) {
+                     section.classList.toggle('sb-collapsed', on);
+                 }
+
+                 // Track which section is being dragged
+                 let dragSrc = null;
+
+                 inner.querySelectorAll('.sb-section[data-key]').forEach(section => {
+                     const key = section.dataset.key;
+                     applyCollapsed(section, collapsedSet.has(key));
+
+                     const header = section.querySelector('.sb-section-header');
+                     const handle = section.querySelector('.sb-drag-handle');
+
+                     // Collapse toggle — click anywhere on header except the handle
+                     header.addEventListener('click', e => {
+                         if (e.target === handle || handle.contains(e.target)) return;
+                         applyCollapsed(section, !section.classList.contains('sb-collapsed'));
+                         saveState();
+                     });
+
+                     // Make only the handle draggable — avoids fighting with child interactions
+                     handle.setAttribute('draggable', 'true');
+
+                     handle.addEventListener('dragstart', e => {
+                         dragSrc = section;
+                         e.dataTransfer.effectAllowed = 'move';
+                         e.dataTransfer.setData('text/plain', key);
+                         // Defer opacity so the drag image is captured first
+                         requestAnimationFrame(() => { section.style.opacity = '0.4'; });
+                     });
+
+                     handle.addEventListener('dragend', () => {
+                         if (dragSrc) dragSrc.style.opacity = '';
+                         dragSrc = null;
+                         inner.querySelectorAll('.sb-section').forEach(s => s.classList.remove('sb-drag-over'));
+                         saveState();
+                     });
+
+                     // Drop target events on the section
+                     section.addEventListener('dragover', e => {
+                         if (!dragSrc || dragSrc === section) return;
+                         e.preventDefault();
+                         e.dataTransfer.dropEffect = 'move';
+                         section.classList.add('sb-drag-over');
+                     });
+
+                     section.addEventListener('dragleave', e => {
+                         // Only clear highlight when leaving the section entirely (not entering a child)
+                         if (!section.contains(e.relatedTarget)) {
+                             section.classList.remove('sb-drag-over');
+                         }
+                     });
+
+                     section.addEventListener('drop', e => {
+                         e.preventDefault();
+                         section.classList.remove('sb-drag-over');
+                         if (!dragSrc || dragSrc === section) return;
+                         inner.insertBefore(dragSrc, section);
+                         saveState();
+                     });
+                 });
+             })();
              // ─────────────────────────────────────────────────────────────────
 
              // Live data monitor — refresh sidebar every 100ms
