@@ -680,6 +680,7 @@
             'ch_ripple':   'Ripple',
             'ch_orb':      'Orb',
             'ch_arc_fill': 'Arc Fill',
+            'countdown':   'Countdown Timer',
             'empty':       'Empty',
         };
 
@@ -697,6 +698,7 @@
             'sigilResult':    'Sigil Result',
             'fortuneTeller':   'Fortune Teller',
             'fortuneOctagram': 'Fortune Octagram',
+            'countdown':       'Countdown Timer',
             'empty':           'Empty',
         };
 
@@ -2348,6 +2350,7 @@
                     case 'sigilResult':   _dp_sigilResult(data,avgs,nCh,bx,by,bw,bh);   break;
                     case 'fortuneTeller':   _dp_fortuneTeller(data,avgs,nCh,bx,by,bw,bh);   break;
                     case 'fortuneOctagram': _dp_fortuneOctagram(data,avgs,nCh,bx,by,bw,bh); break;
+                    case 'countdown':       _dp_countdown(bx,by,bw,bh);                      break;
                     // 'empty': nothing
                 }
             };
@@ -2467,28 +2470,74 @@
                 p.ellipse(cx, cy, r * 0.1, r * 0.1);
             };
 
-            // ch_orb: glowing sphere with shimmer bands
+            // ch_orb: glowing sphere orbiting in 3D — val drives orbit speed, tilt influenced by history
             const _ls_orb = (val, history, ch, nCh, cx, cy, r) => {
                 const norm = p.constrain(val / 360, 0, 1);
                 const { h: hue, s: sat, b: bri } = getChannelColor(Math.max(ch, 0), nCh, [val]);
                 const t = p.frameCount;
-                // Body gradient (layered ellipses from outside in)
-                const steps = 12;
-                for (let i = steps; i >= 0; i--) {
-                    const frac = i / steps;
-                    const rr = r * 0.88 * frac;
-                    const lum = bri * (0.2 + frac * 0.8 + p.sin(t * 0.05 + frac * 4) * 0.05 * norm);
-                    const a = 0.08 + frac * 0.09;
-                    p.noStroke(); p.fill(hue, sat * (0.3 + frac * 0.7), p.constrain(lum, 0, 100), a);
-                    p.ellipse(cx, cy, rr * 2, rr * 2);
+
+                // Orbit speed scales with val: low val = slow drift, high val = fast orbit
+                const baseSpeed = 0.004;
+                const speed = baseSpeed + norm * 0.028;
+                const angle = t * speed;
+
+                // Tilt of the orbital plane — use recent history avg to modulate inclination
+                const histAvg = history && history.length > 0
+                    ? history.slice(-20).reduce((s, v) => s + (v || 0), 0) / Math.min(history.length, 20)
+                    : val;
+                const tilt = p.map(p.constrain(histAvg / 360, 0, 1), 0, 1, 0.15, 0.55); // y-squish factor
+
+                // Orbit radius: fills most of the panel
+                const orbitR = r * 0.68;
+
+                // 3D projection: x stays full, y is squished by tilt to fake perspective
+                const orbX = cx + p.cos(angle) * orbitR;
+                const orbY = cy + p.sin(angle) * orbitR * tilt;
+
+                // Depth cue: sin(angle) in [-1,1], +1 = front, -1 = back
+                const depth = p.sin(angle); // +1 = closest, -1 = farthest
+                const depthNorm = (depth + 1) * 0.5; // remap to 0-1
+
+                // Orbital path ellipse (drawn as a track ring)
+                p.noFill();
+                p.stroke(hue, sat * 0.3, bri * 0.4, 0.25);
+                p.strokeWeight(r * 0.012);
+                p.ellipse(cx, cy, orbitR * 2, orbitR * 2 * tilt);
+
+                // Shadow/ghost at centre — subtle depth anchor
+                const shadowScale = p.map(depthNorm, 0, 1, 0.18, 0.08);
+                p.noStroke(); p.fill(0, 0, 0, shadowScale);
+                p.ellipse(orbX, cy + orbitR * tilt * 0.92, r * 0.28, r * 0.07);
+
+                // Draw the orb only when in front half (depth > -0.15),
+                // and also behind — just scale & dim it for full orbit feel
+                const orbSize = p.map(depthNorm, 0, 1, r * 0.22, r * 0.42);
+                const alphaScale = p.map(depthNorm, 0, 1, 0.45, 1.0);
+
+                // Glow halo
+                const glowSteps = 6;
+                for (let i = glowSteps; i >= 1; i--) {
+                    const frac = i / glowSteps;
+                    p.noStroke();
+                    p.fill(hue, sat * 0.6, bri, (0.04 + norm * 0.04) * frac * alphaScale);
+                    p.ellipse(orbX, orbY, orbSize * (1 + frac * 0.9), orbSize * (1 + frac * 0.9));
                 }
+
+                // Orb body gradient
+                const bodySteps = 10;
+                for (let i = bodySteps; i >= 0; i--) {
+                    const frac = i / bodySteps;
+                    const rr = orbSize * 0.5 * frac;
+                    const lum = bri * (0.3 + frac * 0.7 + p.sin(t * 0.07 + frac * 3) * 0.04 * norm);
+                    const a = (0.07 + frac * 0.11) * alphaScale;
+                    p.noStroke(); p.fill(hue, sat * (0.4 + frac * 0.6), p.constrain(lum, 0, 100), a);
+                    p.ellipse(orbX, orbY, rr * 2, rr * 2);
+                }
+
                 // Specular highlight
-                p.noStroke(); p.fill(0, 0, 100, 0.12 + norm * 0.1);
-                p.ellipse(cx - r * 0.22, cy - r * 0.22, r * 0.35, r * 0.28);
-                // Equator band
-                p.noFill(); p.stroke(hue, sat * 0.4, 100, 0.08 + norm * 0.12);
-                p.strokeWeight(r * 0.02);
-                p.ellipse(cx, cy, r * 1.6, r * 0.35);
+                const hlOff = orbSize * 0.22;
+                p.noStroke(); p.fill(0, 0, 100, (0.18 + norm * 0.12) * alphaScale);
+                p.ellipse(orbX - hlOff, orbY - hlOff, orbSize * 0.35, orbSize * 0.28);
             };
 
             // ch_arc_fill: single arc that fills clockwise by value, with trail history
@@ -2520,6 +2569,79 @@
                 p.noStroke(); p.fill(hue, sat * 0.6, bri, 0.8);
                 p.textAlign(p.CENTER, p.CENTER); p.textSize(r * 0.28); p.textFont('sans-serif');
                 p.text(Math.round(val), cx, cy);
+            };
+
+            // countdown: collection timer as a panel — fills a circular live-scene tile
+            // Draws identically to the corner overlay but scaled to the panel's cx/cy/r
+            const _ls_countdown = (cx, cy, r) => {
+                if (collectIndefinitely || !collectionStartTime) return;
+                const durationMs = parseInt(collectDurationInput.value, 10) * 1000 || 1;
+                const elapsed = Date.now() - collectionStartTime;
+                const remaining = p.constrain(1 - elapsed / durationMs, 0, 1);
+                const secsLeft = Math.max(0, Math.ceil((durationMs - elapsed) / 1000));
+                const timerHue = p.map(remaining, 0, 1, 15, 180);
+
+                const trackR = r * 0.78;
+                const sw = r * 0.09;
+
+                // Track ring
+                p.noFill(); p.stroke(0, 0, 30, 0.55); p.strokeWeight(sw);
+                p.arc(cx, cy, trackR * 2, trackR * 2, -p.HALF_PI, -p.HALF_PI + p.TWO_PI * 0.9999);
+
+                // Remaining arc
+                if (remaining > 0.001) {
+                    p.stroke(timerHue, 80, 90, 0.92); p.strokeWeight(sw);
+                    p.arc(cx, cy, trackR * 2, trackR * 2, -p.HALF_PI, -p.HALF_PI + p.TWO_PI * remaining);
+                }
+
+                // Seconds label
+                p.noStroke(); p.fill(0, 0, 90, 0.9);
+                p.textAlign(p.CENTER, p.CENTER); p.textSize(r * 0.38); p.textFont('sans-serif');
+                p.text(secsLeft, cx, cy);
+
+                // "sec" sub-label
+                p.fill(0, 0, 60, 0.7); p.textSize(r * 0.18);
+                p.text('sec', cx, cy + r * 0.38);
+            };
+
+            // countdown: collection timer as a rectangular dashboard panel
+            const _dp_countdown = (bx, by, bw, bh) => {
+                if (collectIndefinitely || !collectionStartTime) {
+                    // Nothing collecting — show a neutral placeholder
+                    p.noStroke(); p.fill(0, 0, 20, 0.5);
+                    p.textAlign(p.CENTER, p.CENTER); p.textSize(Math.min(bw, bh) * 0.12);
+                    p.textFont('sans-serif'); p.fill(0, 0, 50, 0.7);
+                    p.text('—', bx + bw / 2, by + bh / 2);
+                    return;
+                }
+                const durationMs = parseInt(collectDurationInput.value, 10) * 1000 || 1;
+                const elapsed = Date.now() - collectionStartTime;
+                const remaining = p.constrain(1 - elapsed / durationMs, 0, 1);
+                const secsLeft = Math.max(0, Math.ceil((durationMs - elapsed) / 1000));
+                const timerHue = p.map(remaining, 0, 1, 15, 180);
+
+                const cx = bx + bw / 2, cy = by + bh / 2;
+                const r = Math.min(bw, bh) * 0.4;
+                const sw = r * 0.1;
+
+                // Track ring
+                p.noFill(); p.stroke(0, 0, 30, 0.55); p.strokeWeight(sw);
+                p.arc(cx, cy, r * 2, r * 2, -p.HALF_PI, -p.HALF_PI + p.TWO_PI * 0.9999);
+
+                // Remaining arc
+                if (remaining > 0.001) {
+                    p.stroke(timerHue, 80, 90, 0.92); p.strokeWeight(sw);
+                    p.arc(cx, cy, r * 2, r * 2, -p.HALF_PI, -p.HALF_PI + p.TWO_PI * remaining);
+                }
+
+                // Seconds label
+                p.noStroke(); p.fill(0, 0, 90, 0.9);
+                p.textAlign(p.CENTER, p.CENTER); p.textSize(r * 0.55); p.textFont('sans-serif');
+                p.text(secsLeft, cx, cy);
+
+                // "sec" sub-label
+                p.fill(0, 0, 60, 0.7); p.textSize(r * 0.25);
+                p.text('sec', cx, cy + r * 0.52);
             };
 
             // Dispatcher: renders one live scene panel clipped to a circle
@@ -2556,6 +2678,7 @@
                         case 'ch_ripple':   _ls_ripple(val, history, chIdx, nCh, cx, cy, r);   break;
                         case 'ch_orb':      _ls_orb(val, history, chIdx, nCh, cx, cy, r);      break;
                         case 'ch_arc_fill': _ls_arc_fill(val, history, chIdx, nCh, cx, cy, r); break;
+                        case 'countdown':   _ls_countdown(cx, cy, r);                          break;
                     }
                 } catch(e) { console.warn('liveScene panel error:', tile.type, e); }
 
@@ -4782,7 +4905,10 @@
                      } // End switch
 
                     // --- Countdown radial timer (bottom-right corner, all live modes) ---
-                    if (!capturingScreenshot && !collectIndefinitely && collectionStartTime) {
+                    // Suppressed when layout already has a dedicated countdown panel tile
+                    const _hasCountdownPanel = liveSceneLayout && liveSceneLayout.tiles &&
+                        liveSceneLayout.tiles.some(t => t.type === 'countdown');
+                    if (!capturingScreenshot && !collectIndefinitely && collectionStartTime && !_hasCountdownPanel) {
                         const durationMs = parseInt(collectDurationInput.value, 10) * 1000 || 1;
                         const elapsed = Date.now() - collectionStartTime;
                         const remaining = p.constrain(1 - elapsed / durationMs, 0, 1);
