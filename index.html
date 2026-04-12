@@ -3962,9 +3962,11 @@
 
                 // --- Add Fullscreen Toggle on Click ---
                 cnv.mouseClicked(async () => {
-                    // Suppress fullscreen toggle when edit mode consumed the click
+                    // Suppress fullscreen toggle when any edit mode is active
                     if (dashboardEditMode && dashboardLayout.mode === 'free' &&
                         currentVisualization === 'auraDashboard') return;
+                    if (liveSceneEditMode) return;
+                    if (waitingSceneEditMode) return;
                     // Check if already in fullscreen *on this element* or any element
                     if (!document.fullscreenElement) {
                         try {
