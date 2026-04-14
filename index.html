@@ -479,6 +479,10 @@
                                 <label style="flex:1; font-size:11px;">After (s)</label>
                                 <input type="number" id="displayHoldSeconds" value="8" min="1" style="width:52px;">
                             </div>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="hideGlitchCursorCheckbox">
+                                <label for="hideGlitchCursorCheckbox" style="font-size:11px;">Hide cursor on panel click</label>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -635,6 +639,7 @@
 
         // --- Installation Mode ---
         let isInstallationMode = false;
+        let hideGlitchCursor = false;   // Hide cursor when panel glitch is triggered
         let isWatching = false;         // Waiting for trigger
         let waitingScreenType = 'sigil'; // 'sigil' | 'vizPicker'
         let vizPickerSelectedIdx = 0;    // index into enabled results vizzes for picker
@@ -971,7 +976,8 @@
         const gallerySaveCount    = document.getElementById('gallerySaveCount');
         const exportReadingsBtn   = document.getElementById('exportReadingsBtn');
         const clearReadingsBtn    = document.getElementById('clearReadingsBtn');
-        const installationModeCheckbox = document.getElementById('installationModeCheckbox');
+        const installationModeCheckbox  = document.getElementById('installationModeCheckbox');
+        const hideGlitchCursorCheckbox  = document.getElementById('hideGlitchCursorCheckbox');
         const triggerSensorsInput = document.getElementById('triggerSensorsInput');
         const triggerSensorsContainer = document.getElementById('triggerSensorsContainer');
         const triggerMinCountInput = document.getElementById('triggerMinCount');
@@ -1163,6 +1169,7 @@
                 overlayWeftHeight: overlayWeftHeightSlider.value,
                 debugMode: debugModeCheckbox.checked,
                 installationMode: installationModeCheckbox.checked,
+                hideGlitchCursor: hideGlitchCursorCheckbox.checked,
                 triggerSensors: triggerSensorsInput.value,
                 triggerMinCount: triggerMinCountInput.value,
                 triggerThreshold: triggerThresholdInput.value,
@@ -1209,6 +1216,8 @@
                     overlayWeftHeightSlider.value = settings.overlayWeftHeight || '4';
                     debugModeCheckbox.checked = settings.debugMode || false; // Load debug state
                     installationModeCheckbox.checked = settings.installationMode || false;
+                    hideGlitchCursorCheckbox.checked = settings.hideGlitchCursor || false;
+                    hideGlitchCursor = hideGlitchCursorCheckbox.checked;
                     if (settings.triggerSensors) triggerSensorsInput.value = settings.triggerSensors;
                     if (settings.triggerMinCount) { triggerMinCountInput.value = settings.triggerMinCount; TRIGGER_MIN_COUNT = parseInt(settings.triggerMinCount, 10); }
                     if (settings.triggerThreshold) { triggerThresholdInput.value = settings.triggerThreshold; TRIGGER_THRESHOLD = parseInt(settings.triggerThreshold, 10); }
@@ -4249,13 +4258,12 @@
                         if (hit) {
                             p._glitchPanels.set(hit.id, { startFrame: p.frameCount });
                             p.loop(); // drive animation until glitch expires (p.draw handles noLoop)
-                            // Hide cursor on first glitch hit
-                            p.canvas.style.cursor = 'none';
+                            if (hideGlitchCursor) p.canvas.style.cursor = 'none';
                             return; // don't trigger fullscreen
                         }
 
                         // Clicked on non-panel area — restore cursor
-                        p.canvas.style.cursor = '';
+                        if (hideGlitchCursor) p.canvas.style.cursor = '';
                     }
 
                     // Check if already in fullscreen *on this element* or any element
@@ -5852,6 +5860,13 @@
                     p5Instance.redraw();
                 }
             }
+            saveSettings();
+        });
+
+        hideGlitchCursorCheckbox.addEventListener('change', (e) => {
+            hideGlitchCursor = e.target.checked;
+            // Restore cursor immediately if toggled off while hidden
+            if (!hideGlitchCursor && p5Instance) p5Instance.canvas.style.cursor = '';
             saveSettings();
         });
 
