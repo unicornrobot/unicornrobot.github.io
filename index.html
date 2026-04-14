@@ -3515,6 +3515,14 @@
 
                             p.drawingContext.restore();
 
+                            // Glitch overlay
+                            const _gfree = p._glitchPanels.get(tile.id);
+                            if (_gfree) {
+                                const _gprog = (p.frameCount - _gfree.startFrame) / GLITCH_DURATION;
+                                if (_gprog >= 1) { p._glitchPanels.delete(tile.id); }
+                                else { _applyGlitch(bx, by, bsize, bsize, _gprog); }
+                            }
+
                             // Tile border
                             p.noFill();
                             if (dashboardEditMode && p._dashDragTile === tile) {
@@ -3573,6 +3581,14 @@
                             }
 
                             p.drawingContext.restore();
+
+                            // Glitch overlay
+                            const _ggrid = p._glitchPanels.get(tile.id);
+                            if (_ggrid) {
+                                const _gprog = (p.frameCount - _ggrid.startFrame) / GLITCH_DURATION;
+                                if (_gprog >= 1) { p._glitchPanels.delete(tile.id); }
+                                else { _applyGlitch(bx, by, bw, bh, _gprog); }
+                            }
 
                             p.noFill(); p.stroke(0, 0, 20, 0.3); p.strokeWeight(0.5); p.rect(bx, by, bw, bh, 4);
                         }
@@ -4197,6 +4213,46 @@
                         currentVisualization === 'auraDashboard') return;
                     if (liveSceneEditMode) return;
                     if (waitingSceneEditMode) return;
+
+                    // ── auraDashboard panel glitch on click ──────────────────────
+                    if (currentVisualization === 'auraDashboard' && collectedData.length > 0) {
+                        const W = p.width, H = p.height, gap = 6;
+                        const mx = p.mouseX, my = p.mouseY;
+                        let hit = null;
+
+                        if (dashboardLayout.mode === 'free') {
+                            for (let i = dashboardLayout.tiles.length - 1; i >= 0; i--) {
+                                const tile = dashboardLayout.tiles[i];
+                                const bx = tile.fx * W, by = tile.fy * H;
+                                const bsize = tile.fsize * Math.min(W, H);
+                                if (mx >= bx && mx <= bx + bsize && my >= by && my <= by + bsize) {
+                                    hit = { id: tile.id, bx, by, bw: bsize, bh: bsize }; break;
+                                }
+                            }
+                        } else {
+                            const { cols, rows, tiles } = dashboardLayout;
+                            const cellW = (W - gap*(cols+1)) / cols;
+                            const cellH = (H - gap*(rows+1)) / rows;
+                            for (let i = tiles.length - 1; i >= 0; i--) {
+                                const tile = tiles[i];
+                                if (tile.col >= cols || tile.row >= rows) continue;
+                                const bx = gap + tile.col * (cellW + gap);
+                                const by = gap + tile.row * (cellH + gap);
+                                const bw = tile.colSpan * cellW + (tile.colSpan - 1) * gap;
+                                const bh = tile.rowSpan * cellH + (tile.rowSpan - 1) * gap;
+                                if (mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) {
+                                    hit = { id: tile.id, bx, by, bw, bh }; break;
+                                }
+                            }
+                        }
+
+                        if (hit) {
+                            p._glitchPanels.set(hit.id, { startFrame: p.frameCount });
+                            p.loop(); // drive animation until glitch expires (p.draw handles noLoop)
+                            return; // don't trigger fullscreen
+                        }
+                    }
+
                     // Check if already in fullscreen *on this element* or any element
                     if (!document.fullscreenElement) {
                         try {
@@ -4213,6 +4269,105 @@
                     }
                 });
                  // --- End Fullscreen Toggle ---
+            };
+
+            // ── Glitch animation state (auraDashboard panel click) ───────────────
+            // Map of tileId → { startFrame, bx, by, bw, bh }
+            p._glitchPanels = new Map();
+            const GLITCH_DURATION = 48; // frames
+
+            // Apply CRT glitch overlay to a screen region using raw pixel manipulation
+            const _applyGlitch = (bx, by, bw, bh, progress) => {
+                // progress: 0=just started, 1=end
+                bx = Math.round(bx); by = Math.round(by);
+                bw = Math.round(bw); bh = Math.round(bh);
+                if (bw < 2 || bh < 2) return;
+                // Clamp to canvas
+                const cx0 = Math.max(0, bx), cy0 = Math.max(0, by);
+                const cx1 = Math.min(p.width, bx + bw), cy1 = Math.min(p.height, by + bh);
+                if (cx1 <= cx0 || cy1 <= cy0) return;
+
+                const rw = cx1 - cx0, rh = cy1 - cy0;
+                const ctx = p.drawingContext;
+
+                // Read pixels from canvas
+                let imgd;
+                try { imgd = ctx.getImageData(cx0, cy0, rw, rh); }
+                catch(e) { return; }
+                const d = imgd.data;
+
+                // Intensity pulses — strong at start/end, with random spikes
+                const pulse = (1 - progress) * 0.7 + Math.random() * 0.3;
+                const rng = (lo, hi) => lo + Math.random() * (hi - lo);
+
+                // Number of scan-tear bands this frame
+                const nBands = Math.floor(pulse * 8) + 2;
+
+                // Build per-row horizontal shift map
+                const shifts = new Int16Array(rh);
+                for (let b = 0; b < nBands; b++) {
+                    const bandY  = Math.floor(Math.random() * rh);
+                    const bandH  = Math.floor(rng(2, rh * 0.18)) + 1;
+                    const shift  = Math.floor(rng(-rw * 0.25, rw * 0.25));
+                    for (let y = bandY; y < Math.min(rh, bandY + bandH); y++) {
+                        shifts[y] = shift;
+                    }
+                }
+
+                // Build a scratch copy for horizontal shift reads
+                const src = new Uint8ClampedArray(d);
+
+                const chromaShift = Math.floor(pulse * rw * 0.04) + 1;
+
+                for (let y = 0; y < rh; y++) {
+                    const sh = shifts[y];
+                    const flashRow = Math.random() < pulse * 0.06; // rare bright scan flash
+
+                    for (let x = 0; x < rw; x++) {
+                        const dst = (y * rw + x) * 4;
+
+                        if (flashRow) {
+                            d[dst] = d[dst+1] = d[dst+2] = 220 + (Math.random()*35)|0;
+                            d[dst+3] = 255;
+                            continue;
+                        }
+
+                        // Source x with band shift
+                        const sx = Math.max(0, Math.min(rw - 1, x + sh));
+                        // Chromatic-aberration reads: R shifted +chroma, B shifted -chroma
+                        const rx = Math.max(0, Math.min(rw - 1, sx + chromaShift));
+                        const bx2 = Math.max(0, Math.min(rw - 1, sx - chromaShift));
+
+                        const si  = (y * rw + sx)  * 4;
+                        const ri  = (y * rw + rx)   * 4;
+                        const bi2 = (y * rw + bx2)  * 4;
+
+                        d[dst]   = src[ri];    // R from right-shifted source
+                        d[dst+1] = src[si+1];  // G from centre
+                        d[dst+2] = src[bi2+2]; // B from left-shifted source
+                        d[dst+3] = 255;
+
+                        // Random noise pixels
+                        if (Math.random() < pulse * 0.04) {
+                            const v = (Math.random() * 255)|0;
+                            d[dst] = d[dst+1] = d[dst+2] = v;
+                        }
+                    }
+                }
+
+                // Occasional full-width dark dropout band
+                if (Math.random() < pulse * 0.35) {
+                    const dropY = Math.floor(Math.random() * rh);
+                    const dropH = Math.floor(rng(1, 4));
+                    for (let y = dropY; y < Math.min(rh, dropY + dropH); y++) {
+                        for (let x = 0; x < rw; x++) {
+                            const i = (y * rw + x) * 4;
+                            d[i] = d[i+1] = d[i+2] = (Math.random() * 30)|0;
+                        }
+                    }
+                }
+
+                ctx.putImageData(imgd, cx0, cy0);
             };
 
             // ── Dashboard + LiveScene free-placement drag/resize state ───────────
@@ -5495,6 +5650,16 @@
                     p.fill(0, 0, 80);
                     p.textAlign(p.CENTER, p.CENTER);
                     p.text('Connect device and collect data to visualize.', p.width / 2, p.height / 2);
+                }
+
+                // Stop looping once all panel glitch animations have expired
+                // (only when the sketch isn't actively collecting / watching, since those always loop)
+                if (p._glitchPanels && p._glitchPanels.size > 0 && !isCollecting && !isWatching) {
+                    // Prune expired entries
+                    for (const [id, g] of p._glitchPanels) {
+                        if (p.frameCount - g.startFrame >= GLITCH_DURATION) p._glitchPanels.delete(id);
+                    }
+                    if (p._glitchPanels.size === 0) p.noLoop();
                 }
             }; // End p.draw
 
