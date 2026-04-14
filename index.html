@@ -4249,8 +4249,13 @@
                         if (hit) {
                             p._glitchPanels.set(hit.id, { startFrame: p.frameCount });
                             p.loop(); // drive animation until glitch expires (p.draw handles noLoop)
+                            // Hide cursor on first glitch hit
+                            p.canvas.style.cursor = 'none';
                             return; // don't trigger fullscreen
                         }
+
+                        // Clicked on non-panel area — restore cursor
+                        p.canvas.style.cursor = '';
                     }
 
                     // Check if already in fullscreen *on this element* or any element
