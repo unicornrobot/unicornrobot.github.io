@@ -4411,7 +4411,7 @@
                 octx.putImageData(offImgd, 0, 0);
 
                 // Composite onto main canvas clipped to an inscribed circle
-                const cr = Math.min(rw, rh) / 2; // circle radius
+                const cr = Math.min(rw, rh) / 2 * 1.08; // circle radius — slightly larger than inscribed
                 const ccx = cx0 + rw / 2, ccy = cy0 + rh / 2;
                 ctx.save();
                 ctx.beginPath();
