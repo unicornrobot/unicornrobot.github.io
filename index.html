@@ -483,6 +483,10 @@
                                 <input type="checkbox" id="hideGlitchCursorCheckbox">
                                 <label for="hideGlitchCursorCheckbox" style="font-size:11px;">Hide cursor on panel click</label>
                             </div>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="allowClickFullscreenCheckbox" checked>
+                                <label for="allowClickFullscreenCheckbox" style="font-size:11px;">Allow click-to-fullscreen</label>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -640,6 +644,7 @@
         // --- Installation Mode ---
         let isInstallationMode = false;
         let hideGlitchCursor = false;   // Hide cursor when panel glitch is triggered
+        let allowClickFullscreen = true; // Allow click-to-fullscreen toggle
         let isWatching = false;         // Waiting for trigger
         let waitingScreenType = 'sigil'; // 'sigil' | 'vizPicker'
         let vizPickerSelectedIdx = 0;    // index into enabled results vizzes for picker
@@ -977,7 +982,8 @@
         const exportReadingsBtn   = document.getElementById('exportReadingsBtn');
         const clearReadingsBtn    = document.getElementById('clearReadingsBtn');
         const installationModeCheckbox  = document.getElementById('installationModeCheckbox');
-        const hideGlitchCursorCheckbox  = document.getElementById('hideGlitchCursorCheckbox');
+        const hideGlitchCursorCheckbox      = document.getElementById('hideGlitchCursorCheckbox');
+        const allowClickFullscreenCheckbox  = document.getElementById('allowClickFullscreenCheckbox');
         const triggerSensorsInput = document.getElementById('triggerSensorsInput');
         const triggerSensorsContainer = document.getElementById('triggerSensorsContainer');
         const triggerMinCountInput = document.getElementById('triggerMinCount');
@@ -1170,6 +1176,7 @@
                 debugMode: debugModeCheckbox.checked,
                 installationMode: installationModeCheckbox.checked,
                 hideGlitchCursor: hideGlitchCursorCheckbox.checked,
+                allowClickFullscreen: allowClickFullscreenCheckbox.checked,
                 triggerSensors: triggerSensorsInput.value,
                 triggerMinCount: triggerMinCountInput.value,
                 triggerThreshold: triggerThresholdInput.value,
@@ -1218,6 +1225,8 @@
                     installationModeCheckbox.checked = settings.installationMode || false;
                     hideGlitchCursorCheckbox.checked = settings.hideGlitchCursor || false;
                     hideGlitchCursor = hideGlitchCursorCheckbox.checked;
+                    allowClickFullscreenCheckbox.checked = settings.allowClickFullscreen !== false; // default true
+                    allowClickFullscreen = allowClickFullscreenCheckbox.checked;
                     if (settings.triggerSensors) triggerSensorsInput.value = settings.triggerSensors;
                     if (settings.triggerMinCount) { triggerMinCountInput.value = settings.triggerMinCount; TRIGGER_MIN_COUNT = parseInt(settings.triggerMinCount, 10); }
                     if (settings.triggerThreshold) { triggerThresholdInput.value = settings.triggerThreshold; TRIGGER_THRESHOLD = parseInt(settings.triggerThreshold, 10); }
@@ -4267,6 +4276,7 @@
                     }
 
                     // Check if already in fullscreen *on this element* or any element
+                    if (!allowClickFullscreen) return;
                     if (!document.fullscreenElement) {
                         try {
                             // Request fullscreen on the canvas element
@@ -5867,6 +5877,11 @@
             hideGlitchCursor = e.target.checked;
             // Restore cursor immediately if toggled off while hidden
             if (!hideGlitchCursor && p5Instance) p5Instance.canvas.style.cursor = '';
+            saveSettings();
+        });
+
+        allowClickFullscreenCheckbox.addEventListener('change', (e) => {
+            allowClickFullscreen = e.target.checked;
             saveSettings();
         });
 
