@@ -4210,9 +4210,8 @@
                 let cnv = p.createCanvas(canvasWidth, canvasHeight);
                 cnv.parent('canvasContainer'); // Attach canvas to the div
 
-                // Suppress right-click context menu and long-press when click interactions are disabled
+                // Suppress right-click context menu and long-press context menu when click interactions are disabled
                 p.canvas.addEventListener('contextmenu', e => { if (!allowClickFullscreen) e.preventDefault(); });
-                p.canvas.addEventListener('touchstart',  e => { if (!allowClickFullscreen) e.preventDefault(); }, { passive: false });
 
                 p.colorMode(p.HSB, 360, 100, 100, 1.0); // Use HSB for easier color manipulation
                 p.noLoop(); // Start paused
