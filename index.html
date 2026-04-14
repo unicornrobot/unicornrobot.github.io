@@ -3515,8 +3515,8 @@
                     let zoomSettled = true;
                     for (let zi = 0; zi < 8; zi++) {
                         const lv = (absoluteLatestData && absoluteLatestData[zi] != null) ? absoluteLatestData[zi] : 0;
-                        const target = 1 + p.constrain(lv / 360, 0, 1) * 0.22; // 1.0 → 1.22 range
-                        p._dashZoomScales[zi] += (target - p._dashZoomScales[zi]) * 0.08; // smooth
+                        const target = 1 + p.constrain(lv / 360, 0, 1) * 0.45; // 1.0 → 1.22 range
+                        p._dashZoomScales[zi] += (target - p._dashZoomScales[zi]) * 0.25; // smooth
                         if (Math.abs(p._dashZoomScales[zi] - target) > 0.001) zoomSettled = false;
                     }
                     // Keep looping while live data is changing; stop when settled and no glitches active
