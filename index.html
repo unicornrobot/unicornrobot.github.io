@@ -3509,12 +3509,32 @@
 
                     const { cols, rows, tiles, mode, panelBg } = dashboardLayout;
 
+                    // Live zoom scale per panel index (0–7) — smoothed toward target
+                    if (!p._dashZoomScales) p._dashZoomScales = new Float32Array(8).fill(1);
+                    const hasLiveData = absoluteLatestData && absoluteLatestData.some(v => v > 0);
+                    let zoomSettled = true;
+                    for (let zi = 0; zi < 8; zi++) {
+                        const lv = (absoluteLatestData && absoluteLatestData[zi] != null) ? absoluteLatestData[zi] : 0;
+                        const target = 1 + p.constrain(lv / 360, 0, 1) * 0.22; // 1.0 → 1.22 range
+                        p._dashZoomScales[zi] += (target - p._dashZoomScales[zi]) * 0.08; // smooth
+                        if (Math.abs(p._dashZoomScales[zi] - target) > 0.001) zoomSettled = false;
+                    }
+                    // Keep looping while live data is changing; stop when settled and no glitches active
+                    if (hasLiveData) {
+                        p.loop();
+                    } else if (zoomSettled && p._glitchPanels.size === 0) {
+                        p.noLoop();
+                    }
+
                     if (mode === 'free') {
                         // ── Free placement mode ──────────────────────────────────────────
-                        for (const tile of tiles) {
+                        for (let ti = 0; ti < tiles.length; ti++) {
+                            const tile = tiles[ti];
                             const bx = tile.fx * W;
                             const by = tile.fy * H;
                             const bsize = tile.fsize * Math.min(W, H);
+                            const zoom = ti < 8 ? p._dashZoomScales[ti] : 1;
+                            const cx = bx + bsize / 2, cy = by + bsize / 2;
 
                             if (panelBg !== false) { p.noStroke(); p.fill(0, 0, 11); p.rect(bx, by, bsize, bsize, 4); }
 
@@ -3522,6 +3542,11 @@
                             p.drawingContext.beginPath();
                             p.drawingContext.rect(bx, by, bsize, bsize);
                             p.drawingContext.clip();
+                            if (zoom !== 1) {
+                                p.drawingContext.translate(cx, cy);
+                                p.drawingContext.scale(zoom, zoom);
+                                p.drawingContext.translate(-cx, -cy);
+                            }
 
                             try { dashPanelRender(tile.type, data, avgs, nCh, bx, by, bsize, bsize); }
                             catch(e) { console.warn('Dashboard tile error:', tile.type, e); }
@@ -3576,12 +3601,15 @@
                         const cellW = (W - gap*(cols+1)) / cols;
                         const cellH = (H - gap*(rows+1)) / rows;
 
-                        for (const tile of tiles) {
+                        for (let ti = 0; ti < tiles.length; ti++) {
+                            const tile = tiles[ti];
                             if (tile.col >= cols || tile.row >= rows) continue;
                             const bx = gap + tile.col * (cellW + gap);
                             const by = gap + tile.row * (cellH + gap);
                             const bw = tile.colSpan * cellW + (tile.colSpan - 1) * gap;
                             const bh = tile.rowSpan * cellH + (tile.rowSpan - 1) * gap;
+                            const zoom = ti < 8 ? p._dashZoomScales[ti] : 1;
+                            const cx = bx + bw / 2, cy = by + bh / 2;
 
                             if (panelBg !== false) { p.noStroke(); p.fill(0, 0, 11); p.rect(bx, by, bw, bh, 4); }
 
@@ -3589,6 +3617,11 @@
                             p.drawingContext.beginPath();
                             p.drawingContext.rect(bx, by, bw, bh);
                             p.drawingContext.clip();
+                            if (zoom !== 1) {
+                                p.drawingContext.translate(cx, cy);
+                                p.drawingContext.scale(zoom, zoom);
+                                p.drawingContext.translate(-cx, -cy);
+                            }
 
                             try { dashPanelRender(tile.type, data, avgs, nCh, bx, by, bw, bh); }
                             catch(e) { console.warn('Dashboard tile error:', tile.type, e); }
