@@ -2937,98 +2937,108 @@
             //   o=tanh(o/1e4);
             // val drives rotation speed + fold frequency; history avg shifts surface phase.
             const _ls_foldball = (() => {
-                let _pg = null, _pgSize = 0;
+                // Fixed low resolution — Pi 4 budget
+                const RES = 28;
+                let _pg       = null;
+                let _imgData  = null;
+                let _buf      = null;
+                let _lastFrame = -1;  // frame number of last full render
+                const SKIP = 2;       // render every Nth frame; reuse otherwise
 
                 return (val, history, ch, nCh, cx, cy, r) => {
                     const norm = p.constrain(val / 360, 0, 1);
                     const { h: hue } = getChannelColor(Math.max(ch, 0), nCh, [val]);
                     const t = p.frameCount;
-                    const tt = t * (0.004 + norm * 0.018);
 
-                    const histAvg = (history && history.length)
-                        ? history.slice(-30).reduce((a, v) => a + (v || 0), 0) / Math.min(history.length, 30)
-                        : val;
-                    const hPhase = (histAvg / 360) * 6.2832;
-                    const hRad   = (hue  / 360) * 6.2832;
-
-                    // Coarse internal resolution — one "cell" per STEP pixels of diameter
-                    const STEP = Math.max(2, (r / 30) | 0);
-                    const RES  = Math.ceil(r * 2 / STEP);
-
-                    if (!_pg || _pgSize !== RES) {
-                        _pg = p.createGraphics(RES, RES);
+                    // Allocate once
+                    if (!_pg) {
+                        _pg      = p.createGraphics(RES, RES);
                         _pg.pixelDensity(1);
-                        _pgSize = RES;
+                        _imgData = _pg.drawingContext.createImageData(RES, RES);
+                        _buf     = _imgData.data;
                     }
 
-                    // Write into a plain ImageData buffer directly — bypasses p5 color mode entirely
-                    const canvas2d = _pg.drawingContext;
-                    const imgData  = canvas2d.createImageData(RES, RES);
-                    const buf      = imgData.data;
+                    // Render every SKIP frames — reuse last result on skip frames
+                    if (t - _lastFrame >= SKIP) {
+                        _lastFrame = t;
 
-                    for (let row = 0; row < RES; row++) {
-                        for (let col = 0; col < RES; col++) {
-                            const ux = (col + 0.5) / RES * 2 - 1;
-                            const uy = 1 - (row + 0.5) / RES * 2;
-                            const base_idx = (row * RES + col) * 4;
+                        const tt     = t * (0.004 + norm * 0.018);
+                        const histAvg = (history && history.length)
+                            ? history.slice(-20).reduce((a, v) => a + (v || 0), 0) / Math.min(history.length, 20)
+                            : val;
+                        const hPhase = (histAvg / 360) * 6.2832;
+                        const hRad   = (hue     / 360) * 6.2832;
 
-                            if (ux*ux + uy*uy > 1.0) {
-                                buf[base_idx+3] = 0; continue;
-                            }
+                        const MAX_STEPS = 24; // capped for Pi 4 — far steps contribute near-zero weight
 
-                            const rlen = Math.sqrt(ux*ux + uy*uy + 1);
-                            const rdx =  ux / rlen;
-                            const rdy =  uy / rlen;
-                            const rdz = -1  / rlen;
+                        for (let row = 0; row < RES; row++) {
+                            for (let col = 0; col < RES; col++) {
+                                const ux = (col + 0.5) / RES * 2 - 1;
+                                const uy = 1 - (row + 0.5) / RES * 2;
+                                const bi = (row * RES + col) * 4;
 
-                            let oR = 0, oG = 0, oB = 0, z = 0;
+                                if (ux*ux + uy*uy > 1.0) { _buf[bi+3] = 0; continue; }
 
-                            for (let i = 1; i <= 80; i++) {
-                                let vx = rdx * z;
-                                let vy = rdy * z;
-                                let vz = rdz * z + 2;
+                                const rlen = Math.sqrt(ux*ux + uy*uy + 1);
+                                const rdx =  ux / rlen;
+                                const rdy =  uy / rlen;
+                                const rdz = -1  / rlen;
 
-                                const ang = vy + tt;
-                                const m00 = Math.cos(ang),      m01 = Math.cos(ang + 33);
-                                const m10 = Math.cos(ang + 11), m11 = Math.cos(ang);
-                                const nZ = m00*vz + m01*vx, nX = m10*vz + m11*vx;
-                                vz = nZ; vx = nX;
+                                let oR = 0, oG = 0, oB = 0, z = 0;
 
-                                const sfx = vx, sfy = vy, sfz = vz;
+                                for (let i = 1; i <= MAX_STEPS; i++) {
+                                    let vx = rdx * z;
+                                    let vy = rdy * z;
+                                    let vz = rdz * z + 2;
 
-                                let d = 1;
-                                while (d < i) {
-                                    const fx = Math.sin(vy*d)/d, fy = Math.sin(vz*d)/d, fz = Math.sin(vx*d)/d;
-                                    vx += fx; vy += fy; vz += fz;
-                                    d *= 2;
+                                    // mat2 rotation of zx plane
+                                    const ang = vy + tt;
+                                    const m00 = Math.cos(ang), m01 = Math.cos(ang + 33);
+                                    const m10 = Math.cos(ang + 11);
+                                    const nZ = m00*vz + m01*vx, nX = m10*vz + m00*vx;
+                                    vz = nZ; vx = nX;
+
+                                    const sfx = vx, sfy = vy, sfz = vz;
+
+                                    // Domain fold — cap at 4 doublings (d=1,2,4,8,16) for fixed cost
+                                    let d = 1;
+                                    const dMax = Math.min(i, 16);
+                                    while (d <= dMax) {
+                                        const fx = Math.sin(vy*d)/d, fy = Math.sin(vz*d)/d, fz = Math.sin(vx*d)/d;
+                                        vx += fx; vy += fy; vz += fz;
+                                        d *= 2;
+                                    }
+
+                                    const sphereDist = Math.sqrt(sfx*sfx + sfy*sfy + sfz*sfz) - 1;
+                                    const s = Math.cos(3 * vy);
+                                    d = 0.2 * Math.max(0.03 + Math.abs(s) * 0.1, sphereDist);
+                                    z += d;
+                                    if (z > 6) break;
+
+                                    // Skip colour on far/thin steps — weight would be negligible
+                                    const w = 1.0 / (d * z + 1e-5);
+                                    if (w < 1.0) continue;
+
+                                    const base = s / 0.4 + vy + hPhase;
+                                    oR += (Math.cos(base + 6 + hRad)        + 1.5) * w;
+                                    oG += (Math.cos(base + 1 + hRad * 0.55) + 1.5) * w;
+                                    oB += (Math.cos(base + 3 + hRad * 0.25) + 1.5) * w;
                                 }
 
-                                const sphereDist = Math.sqrt(sfx*sfx + sfy*sfy + sfz*sfz) - 1;
-                                const s = Math.cos(3 * vy);
-                                d = 0.2 * Math.max(0.03 + Math.abs(s) * 0.1, sphereDist);
-                                z += d;
-                                if (z > 8) break;
-
-                                const base = s / 0.4 + vy + hPhase;
-                                const w = 1.0 / (d * z + 1e-5);
-                                oR += (Math.cos(base + 6 + hRad)        + 1.5) * w;
-                                oG += (Math.cos(base + 1 + hRad * 0.55) + 1.5) * w;
-                                oB += (Math.cos(base + 3 + hRad * 0.25) + 1.5) * w;
+                                _buf[bi]   = (Math.tanh(oR / 1e4) * 255 + 0.5) | 0;
+                                _buf[bi+1] = (Math.tanh(oG / 1e4) * 255 + 0.5) | 0;
+                                _buf[bi+2] = (Math.tanh(oB / 1e4) * 255 + 0.5) | 0;
+                                _buf[bi+3] = 255;
                             }
-
-                            buf[base_idx]   = (Math.tanh(oR / 1e4) * 255 + 0.5) | 0;
-                            buf[base_idx+1] = (Math.tanh(oG / 1e4) * 255 + 0.5) | 0;
-                            buf[base_idx+2] = (Math.tanh(oB / 1e4) * 255 + 0.5) | 0;
-                            buf[base_idx+3] = 255;
                         }
+
+                        _pg.drawingContext.putImageData(_imgData, 0, 0);
                     }
 
-                    // Write ImageData directly to the offscreen canvas — no p5 color mode involved
-                    canvas2d.putImageData(imgData, 0, 0);
-
-                    // Draw scaled up to panel size, centered
-                    const diam = r * 2;
-                    p.drawingContext.drawImage(_pg.elt, cx - r, cy - r, diam, diam);
+                    // Draw scaled to panel — browser GPU handles the upscale
+                    p.drawingContext.imageSmoothingEnabled = true;
+                    p.drawingContext.imageSmoothingQuality = 'low';
+                    p.drawingContext.drawImage(_pg.elt, cx - r, cy - r, r * 2, r * 2);
                 };
             })();
 
