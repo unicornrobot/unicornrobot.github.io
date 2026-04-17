@@ -1875,6 +1875,7 @@
             updateDataCount();
             isCollecting = true;
             collectionStartTime = Date.now();
+            if (p5Instance) p5Instance.updateSensorTones(null); // silence waiting tones
 
             let statusMessage = "";
             if (collectIndefinitely) {
@@ -4759,6 +4760,89 @@
                 } catch(e) { /* audio unavailable */ }
             };
 
+            // ── Sensor tones — one continuous oscillator per channel on waiting screen ──
+            // Each sensor (0–7) gets a sine oscillator whose frequency tracks sensor value.
+            // A dedicated GainNode per channel fades in/out smoothly as the sensor activates.
+            // Base pitches: pentatonic-ish spread across ~200–900 Hz so all 8 are distinct.
+            const SENSOR_BASE_FREQS = [220, 277, 330, 392, 440, 554, 660, 880]; // A3–A5 pentatonic
+            const _sensorOscs   = new Array(8).fill(null); // OscillatorNode per channel
+            const _sensorGains  = new Array(8).fill(null); // GainNode per channel
+            const _sensorActive = new Array(8).fill(false);
+            const TONE_THRESHOLD = 40;    // sensor value (0–360) above which tone plays
+            const TONE_MAX_GAIN  = 0.06;  // per-voice peak volume (quiet — 8 voices sum)
+            const TONE_FADE_TIME = 0.08;  // seconds for gain ramp
+
+            const _initSensorTones = () => {
+                try {
+                    const ac = _ensureAudioCtx();
+                    // Master gain for all sensor tones so we can kill them all at once
+                    if (!p._sensorMaster) {
+                        p._sensorMaster = ac.createGain();
+                        p._sensorMaster.gain.setValueAtTime(1, ac.currentTime);
+                        p._sensorMaster.connect(ac.destination);
+                    }
+                    for (let ch = 0; ch < 8; ch++) {
+                        if (_sensorOscs[ch]) continue; // already initialised
+                        const osc  = ac.createOscillator();
+                        const gain = ac.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(SENSOR_BASE_FREQS[ch], ac.currentTime);
+                        gain.gain.setValueAtTime(0, ac.currentTime);
+                        osc.connect(gain);
+                        gain.connect(p._sensorMaster);
+                        osc.start();
+                        _sensorOscs[ch]  = osc;
+                        _sensorGains[ch] = gain;
+                    }
+                } catch(e) { /* audio unavailable */ }
+            };
+
+            const _stopSensorTones = () => {
+                try {
+                    if (!p._sensorMaster) return;
+                    const ac = _ensureAudioCtx();
+                    for (let ch = 0; ch < 8; ch++) {
+                        if (_sensorGains[ch]) {
+                            _sensorGains[ch].gain.cancelScheduledValues(ac.currentTime);
+                            _sensorGains[ch].gain.setTargetAtTime(0, ac.currentTime, 0.05);
+                        }
+                        _sensorActive[ch] = false;
+                    }
+                } catch(e) {}
+            };
+
+            // Called each frame from the waiting screen; sensorVals is absoluteLatestData (0–360 each)
+            p.updateSensorTones = (sensorVals) => {
+                if (!sensorVals) { _stopSensorTones(); return; }
+                try {
+                    _initSensorTones();
+                    const ac = _ensureAudioCtx();
+                    const now = ac.currentTime;
+                    for (let ch = 0; ch < 8; ch++) {
+                        const val = sensorVals[ch] || 0;
+                        const shouldPlay = val > TONE_THRESHOLD;
+                        const osc  = _sensorOscs[ch];
+                        const gain = _sensorGains[ch];
+                        if (!osc || !gain) continue;
+
+                        // Map sensor value (TONE_THRESHOLD–360) to a pitch deviation: ±a minor third
+                        const pitchRatio = 1 + ((val - TONE_THRESHOLD) / (360 - TONE_THRESHOLD)) * 0.25;
+                        osc.frequency.setTargetAtTime(SENSOR_BASE_FREQS[ch] * pitchRatio, now, 0.15);
+
+                        if (shouldPlay && !_sensorActive[ch]) {
+                            gain.gain.cancelScheduledValues(now);
+                            gain.gain.setTargetAtTime(TONE_MAX_GAIN, now, TONE_FADE_TIME);
+                            _sensorActive[ch] = true;
+                        } else if (!shouldPlay && _sensorActive[ch]) {
+                            gain.gain.cancelScheduledValues(now);
+                            gain.gain.setTargetAtTime(0, now, TONE_FADE_TIME);
+                            _sensorActive[ch] = false;
+                        }
+                    }
+                } catch(e) {}
+            };
+            // ── End sensor tones ─────────────────────────────────────────────────────
+
             // ── Dashboard + LiveScene free-placement drag/resize state ───────────
             p._dashDragTile = null; p._dashResizeTile = null; p._dashDeleteTile = null;
             p._dashDragOffX = 0; p._dashDragOffY = 0;
@@ -5082,6 +5166,11 @@
 
                 // --- Installation Mode: Watching/Waiting State ---
                 if ((isWatching || sigilDissolving) && !isCollecting) {
+                    // Update sensor tones ~10Hz (every 6 frames) while waiting
+                    if (isWatching && p.frameCount % 6 === 0) {
+                        p.updateSensorTones(absoluteLatestData);
+                    }
+
                     if (isWatching && waitingScreenType === 'waitingScene') {
                         // --- Waiting Scene Layout Screen ---
                         const bgHue2  = p.lerp(220, 35, p.constrain(
@@ -6018,7 +6107,7 @@
                         const t2 = (p.frameCount % 60) / 60;
 
                         // Spinning arc
-                        const arcR = Math.min(W2, H2) * 0.08;
+                        const arcR = Math.min(W2, H2) * 0.04;
                         p.noFill();
                         p.stroke(0, 0, 22);
                         p.strokeWeight(arcR * 0.18);
