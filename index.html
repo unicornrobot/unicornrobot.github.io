@@ -4531,6 +4531,7 @@
                         if (hit) {
                             p._glitchPanels.set(hit.id, { startFrame: p.frameCount });
                             p.loop(); // drive animation until glitch expires (p.draw handles noLoop)
+                            p.playGlitchSound();
                             if (hideGlitchCursor) p.canvas.style.cursor = 'none';
                             return; // don't trigger fullscreen
                         }
@@ -4680,6 +4681,77 @@
                 ctx.clip();
                 ctx.drawImage(_glitchOffscreen, 0, 0, rw, rh, cx0, cy0, rw, rh);
                 ctx.restore();
+            };
+
+            // ── Glitch audio — detuned radio static ──────────────────────────────
+            let _glitchAudioCtx = null;
+            const _ensureAudioCtx = () => {
+                if (!_glitchAudioCtx || _glitchAudioCtx.state === 'closed') {
+                    _glitchAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (_glitchAudioCtx.state === 'suspended') _glitchAudioCtx.resume();
+                return _glitchAudioCtx;
+            };
+
+            p.playGlitchSound = () => {
+                if (glitchIntensity === 0) return;
+                try {
+                    const ac  = _ensureAudioCtx();
+                    const dur = GLITCH_DURATION / 60; // seconds
+
+                    // White noise source via AudioBuffer
+                    const bufLen  = Math.ceil(ac.sampleRate * dur);
+                    const noiseBuf = ac.createBuffer(1, bufLen, ac.sampleRate);
+                    const nd = noiseBuf.getChannelData(0);
+                    for (let i = 0; i < bufLen; i++) nd[i] = Math.random() * 2 - 1;
+                    const noise = ac.createBufferSource();
+                    noise.buffer = noiseBuf;
+
+                    // Bandpass — centred ~1.4 kHz, narrow Q gives radio fizz
+                    const bp = ac.createBiquadFilter();
+                    bp.type = 'bandpass';
+                    bp.frequency.setValueAtTime(1400, ac.currentTime);
+                    bp.Q.setValueAtTime(1.8, ac.currentTime);
+
+                    // Second bandpass layer for harmonic grit
+                    const bp2 = ac.createBiquadFilter();
+                    bp2.type = 'bandpass';
+                    bp2.frequency.setValueAtTime(3200, ac.currentTime);
+                    bp2.Q.setValueAtTime(2.5, ac.currentTime);
+
+                    // LFO wobbles the first filter freq — detuned scanning effect
+                    const lfo = ac.createOscillator();
+                    lfo.type = 'sine';
+                    lfo.frequency.setValueAtTime(8 + Math.random() * 6, ac.currentTime);
+                    const lfoGain = ac.createGain();
+                    lfoGain.gain.setValueAtTime(600, ac.currentTime);
+                    lfo.connect(lfoGain);
+                    lfoGain.connect(bp.frequency);
+
+                    // Amplitude envelope: sharp attack, sustain, fast decay
+                    const env = ac.createGain();
+                    const vol = Math.min(1, glitchIntensity) * 0.22;
+                    env.gain.setValueAtTime(0, ac.currentTime);
+                    env.gain.linearRampToValueAtTime(vol, ac.currentTime + 0.02);
+                    env.gain.setValueAtTime(vol * 0.85, ac.currentTime + dur * 0.3);
+                    env.gain.linearRampToValueAtTime(0, ac.currentTime + dur);
+
+                    // Mix both bandpass layers
+                    const mix = ac.createGain();
+                    mix.gain.setValueAtTime(1, ac.currentTime);
+
+                    noise.connect(bp);
+                    noise.connect(bp2);
+                    bp.connect(mix);
+                    bp2.connect(mix);
+                    mix.connect(env);
+                    env.connect(ac.destination);
+
+                    lfo.start(ac.currentTime);
+                    noise.start(ac.currentTime);
+                    noise.stop(ac.currentTime + dur);
+                    lfo.stop(ac.currentTime + dur);
+                } catch(e) { /* audio unavailable */ }
             };
 
             // ── Dashboard + LiveScene free-placement drag/resize state ───────────
