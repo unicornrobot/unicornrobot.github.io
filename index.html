@@ -1954,6 +1954,7 @@
             isCollecting = false;
             isWatching = false;
             clearTimeout(collectionTimerId); // Clear timer in case stopped manually
+            if (p5Instance) p5Instance.updateSensorTones(null); // silence tones
             const collectionEndTime = Date.now();
             const actualDuration = ((collectionEndTime - collectionStartTime) / 1000).toFixed(1);
 
