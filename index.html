@@ -501,6 +501,15 @@
                                 <input type="range" id="glitchIntensitySlider" min="0" max="2" step="0.05" value="1" style="flex:1;">
                                 <span id="glitchIntensityValue" style="font-size:11px; min-width:24px; text-align:right;">1.0</span>
                             </div>
+                            <div style="font-size:10px;color:#555;margin-top:6px;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.08em;">Sensor Tones</div>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="soundWaitingCheckbox" checked>
+                                <label for="soundWaitingCheckbox" style="font-size:11px;">Play on waiting screen</label>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="soundLiveCheckbox">
+                                <label for="soundLiveCheckbox" style="font-size:11px;">Play during collection</label>
+                            </div>
                             <div style="display:flex; align-items:center; gap:6px;">
                                 <input type="checkbox" id="allowClickFullscreenCheckbox" checked>
                                 <label for="allowClickFullscreenCheckbox" style="font-size:11px;">Allow click-to-fullscreen</label>
@@ -667,6 +676,8 @@
         let glitchStatic    = true;      // Random noise + dropout bands
         let glitchChromatic = true;      // Chromatic aberration
         let glitchIntensity = 1.0;       // Overall intensity multiplier (0–2)
+        let soundWaiting    = true;      // Play sensor tones on waiting screen
+        let soundLive       = false;     // Play sensor tones during live collection
         let allowClickFullscreen = true; // Allow click-to-fullscreen toggle
         let isWatching = false;         // Waiting for trigger
         let waitingScreenType = 'sigil'; // 'sigil' | 'vizPicker'
@@ -1014,6 +1025,8 @@
         const glitchChromaticCheckbox       = document.getElementById('glitchChromaticCheckbox');
         const glitchIntensitySlider         = document.getElementById('glitchIntensitySlider');
         const glitchIntensityValue          = document.getElementById('glitchIntensityValue');
+        const soundWaitingCheckbox          = document.getElementById('soundWaitingCheckbox');
+        const soundLiveCheckbox             = document.getElementById('soundLiveCheckbox');
         const triggerSensorsInput = document.getElementById('triggerSensorsInput');
         const triggerSensorsContainer = document.getElementById('triggerSensorsContainer');
         const triggerMinCountInput = document.getElementById('triggerMinCount');
@@ -1210,6 +1223,8 @@
                 glitchStatic:     glitchStaticCheckbox.checked,
                 glitchChromatic:  glitchChromaticCheckbox.checked,
                 glitchIntensity:  parseFloat(glitchIntensitySlider.value),
+                soundWaiting:     soundWaitingCheckbox.checked,
+                soundLive:        soundLiveCheckbox.checked,
                 allowClickFullscreen: allowClickFullscreenCheckbox.checked,
                 triggerSensors: triggerSensorsInput.value,
                 triggerMinCount: triggerMinCountInput.value,
@@ -1272,6 +1287,10 @@
                     glitchIntensitySlider.value = _gi;
                     glitchIntensityValue.textContent = parseFloat(_gi).toFixed(1);
                     glitchIntensity = _gi;
+                    soundWaitingCheckbox.checked = settings.soundWaiting !== false;
+                    soundLiveCheckbox.checked    = settings.soundLive    === true;
+                    soundWaiting = soundWaitingCheckbox.checked;
+                    soundLive    = soundLiveCheckbox.checked;
                     allowClickFullscreenCheckbox.checked = settings.allowClickFullscreen !== false; // default true
                     allowClickFullscreen = allowClickFullscreenCheckbox.checked;
                     if (settings.triggerSensors) triggerSensorsInput.value = settings.triggerSensors;
@@ -1875,7 +1894,7 @@
             updateDataCount();
             isCollecting = true;
             collectionStartTime = Date.now();
-            if (p5Instance) p5Instance.updateSensorTones(null); // silence waiting tones
+            if (p5Instance) p5Instance.updateSensorTones(null); // silence any active tones
 
             let statusMessage = "";
             if (collectIndefinitely) {
@@ -5167,8 +5186,10 @@
                 // --- Installation Mode: Watching/Waiting State ---
                 if ((isWatching || sigilDissolving) && !isCollecting) {
                     // Update sensor tones ~10Hz (every 6 frames) while waiting
-                    if (isWatching && p.frameCount % 6 === 0) {
+                    if (isWatching && soundWaiting && p.frameCount % 6 === 0) {
                         p.updateSensorTones(absoluteLatestData);
+                    } else if (isWatching && !soundWaiting && p.frameCount % 6 === 0) {
+                        p.updateSensorTones(null); // ensure silenced if toggled off mid-session
                     }
 
                     if (isWatching && waitingScreenType === 'waitingScene') {
@@ -5498,6 +5519,13 @@
                      if (collectedData.length > 0) {
                          latestValidData = collectedData[collectedData.length - 1];
                      }
+
+                    // Sensor tones during live collection (~10Hz)
+                    if (soundLive && p.frameCount % 6 === 0) {
+                        p.updateSensorTones(absoluteLatestData);
+                    } else if (!soundLive && p.frameCount % 6 === 0) {
+                        p.updateSensorTones(null);
+                    }
                      // We also need expectedDataLength to know how many streams to expect
                      const numStreams = (expectedDataLength > 0) ? expectedDataLength : 1; // Default to 1 if not set
 
@@ -6411,6 +6439,17 @@
         glitchIntensitySlider.addEventListener('input', (e) => {
             glitchIntensity = parseFloat(e.target.value);
             glitchIntensityValue.textContent = glitchIntensity.toFixed(1);
+            saveSettings();
+        });
+
+        soundWaitingCheckbox.addEventListener('change', (e) => {
+            soundWaiting = e.target.checked;
+            if (!soundWaiting && p5Instance) p5Instance.updateSensorTones(null);
+            saveSettings();
+        });
+        soundLiveCheckbox.addEventListener('change', (e) => {
+            soundLive = e.target.checked;
+            if (!soundLive && !soundWaiting && p5Instance) p5Instance.updateSensorTones(null);
             saveSettings();
         });
 
