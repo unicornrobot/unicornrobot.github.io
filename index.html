@@ -483,6 +483,24 @@
                                 <input type="checkbox" id="hideGlitchCursorCheckbox">
                                 <label for="hideGlitchCursorCheckbox" style="font-size:11px;">Hide cursor on panel click</label>
                             </div>
+                            <div style="font-size:10px;color:#555;margin-top:4px;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.08em;">Glitch Effects</div>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="glitchLinesCheckbox" checked>
+                                <label for="glitchLinesCheckbox" style="font-size:11px;">Scan lines</label>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="glitchStaticCheckbox" checked>
+                                <label for="glitchStaticCheckbox" style="font-size:11px;">Static / noise</label>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="glitchChromaticCheckbox" checked>
+                                <label for="glitchChromaticCheckbox" style="font-size:11px;">Chromatic aberration</label>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px; margin-top:2px;">
+                                <label for="glitchIntensitySlider" style="font-size:11px; white-space:nowrap;">Intensity</label>
+                                <input type="range" id="glitchIntensitySlider" min="0" max="2" step="0.05" value="1" style="flex:1;">
+                                <span id="glitchIntensityValue" style="font-size:11px; min-width:24px; text-align:right;">1.0</span>
+                            </div>
                             <div style="display:flex; align-items:center; gap:6px;">
                                 <input type="checkbox" id="allowClickFullscreenCheckbox" checked>
                                 <label for="allowClickFullscreenCheckbox" style="font-size:11px;">Allow click-to-fullscreen</label>
@@ -644,6 +662,10 @@
         // --- Installation Mode ---
         let isInstallationMode = false;
         let hideGlitchCursor = false;   // Hide cursor when panel glitch is triggered
+        let glitchLines     = true;      // Scan-tear bands
+        let glitchStatic    = true;      // Random noise + dropout bands
+        let glitchChromatic = true;      // Chromatic aberration
+        let glitchIntensity = 1.0;       // Overall intensity multiplier (0–2)
         let allowClickFullscreen = true; // Allow click-to-fullscreen toggle
         let isWatching = false;         // Waiting for trigger
         let waitingScreenType = 'sigil'; // 'sigil' | 'vizPicker'
@@ -855,6 +877,7 @@
             'fortuneTeller':   'Fortune Teller',
             'fortuneOctagram': 'Fortune Octagram',
             'countdown':       'Countdown Timer',
+            'fingerprintArcs': 'Fingerprint Arcs',
             'empty':           'Empty',
         };
 
@@ -880,6 +903,7 @@
                 { key: 'fortuneTeller',    label: 'Fortune Teller',    enabled: true  },
                 { key: 'fortuneOctagram', label: 'Fortune Octagram',  enabled: true  },
                 { key: 'concentricArcs',   label: 'Concentric Arcs',   enabled: true  },
+                { key: 'fingerprintArcs',  label: 'Fingerprint Arcs',  enabled: true  },
                 { key: 'lines',            label: 'Line Graph',        enabled: true  },
                 { key: 'stackedBars',      label: 'Stacked Bars',      enabled: false },
                 { key: 'histogram',        label: 'Histogram',         enabled: false },
@@ -984,6 +1008,11 @@
         const installationModeCheckbox  = document.getElementById('installationModeCheckbox');
         const hideGlitchCursorCheckbox      = document.getElementById('hideGlitchCursorCheckbox');
         const allowClickFullscreenCheckbox  = document.getElementById('allowClickFullscreenCheckbox');
+        const glitchLinesCheckbox           = document.getElementById('glitchLinesCheckbox');
+        const glitchStaticCheckbox          = document.getElementById('glitchStaticCheckbox');
+        const glitchChromaticCheckbox       = document.getElementById('glitchChromaticCheckbox');
+        const glitchIntensitySlider         = document.getElementById('glitchIntensitySlider');
+        const glitchIntensityValue          = document.getElementById('glitchIntensityValue');
         const triggerSensorsInput = document.getElementById('triggerSensorsInput');
         const triggerSensorsContainer = document.getElementById('triggerSensorsContainer');
         const triggerMinCountInput = document.getElementById('triggerMinCount');
@@ -1176,6 +1205,10 @@
                 debugMode: debugModeCheckbox.checked,
                 installationMode: installationModeCheckbox.checked,
                 hideGlitchCursor: hideGlitchCursorCheckbox.checked,
+                glitchLines:      glitchLinesCheckbox.checked,
+                glitchStatic:     glitchStaticCheckbox.checked,
+                glitchChromatic:  glitchChromaticCheckbox.checked,
+                glitchIntensity:  parseFloat(glitchIntensitySlider.value),
                 allowClickFullscreen: allowClickFullscreenCheckbox.checked,
                 triggerSensors: triggerSensorsInput.value,
                 triggerMinCount: triggerMinCountInput.value,
@@ -1225,6 +1258,16 @@
                     installationModeCheckbox.checked = settings.installationMode || false;
                     hideGlitchCursorCheckbox.checked = settings.hideGlitchCursor || false;
                     hideGlitchCursor = hideGlitchCursorCheckbox.checked;
+                    glitchLinesCheckbox.checked     = settings.glitchLines     !== false;
+                    glitchStaticCheckbox.checked    = settings.glitchStatic    !== false;
+                    glitchChromaticCheckbox.checked = settings.glitchChromatic !== false;
+                    glitchLines     = glitchLinesCheckbox.checked;
+                    glitchStatic    = glitchStaticCheckbox.checked;
+                    glitchChromatic = glitchChromaticCheckbox.checked;
+                    const _gi = settings.glitchIntensity !== undefined ? settings.glitchIntensity : 1.0;
+                    glitchIntensitySlider.value = _gi;
+                    glitchIntensityValue.textContent = parseFloat(_gi).toFixed(1);
+                    glitchIntensity = _gi;
                     allowClickFullscreenCheckbox.checked = settings.allowClickFullscreen !== false; // default true
                     allowClickFullscreen = allowClickFullscreenCheckbox.checked;
                     if (settings.triggerSensors) triggerSensorsInput.value = settings.triggerSensors;
@@ -2512,6 +2555,72 @@
                 }
             };
 
+            const _dp_fingerprintArcs = (data, avgs, nCh, bx, by, bw, bh) => {
+                if (data.length === 0 || data[0].length === 0) return;
+                const cx = bx + bw / 2, cy = by + bh / 2;
+                const n  = data.length;
+                const ch = Math.min(nCh, 8);
+                const maxR = Math.min(bw, bh) * 0.46;
+                const minR = maxR * 0.04;
+                const ringSpan = maxR - minR;
+                const NUM_RINGS = 48;
+                const STEPS = 180;
+
+                // Smooth each channel
+                const smoothed = Array.from({ length: ch }, (_, c) => {
+                    const win = Math.max(3, Math.round(n * 0.06));
+                    const half = Math.floor(win / 2);
+                    return Array.from({ length: n }, (__, i) => {
+                        let s = 0, cnt = 0;
+                        for (let k = i - half; k <= i + half; k++) {
+                            s += data[Math.max(0, Math.min(n - 1, k))][c] || 0;
+                            cnt++;
+                        }
+                        return s / cnt / 360;
+                    });
+                });
+
+                const getWarp = (ring, angleDeg) => {
+                    const tIdx = Math.round((ring / NUM_RINGS) * (n - 1));
+                    const sectorSize = 360 / ch;
+                    const floatSector = angleDeg / sectorSize;
+                    const s0 = Math.floor(floatSector) % ch;
+                    const s1 = (s0 + 1) % ch;
+                    const t  = floatSector - Math.floor(floatSector);
+                    const blend = t * t * (3 - 2 * t);
+                    return smoothed[s0][tIdx] * (1 - blend) + smoothed[s1][tIdx] * blend;
+                };
+
+                p.noFill();
+                for (let r = 0; r < NUM_RINGS; r++) {
+                    const t = r / (NUM_RINGS - 1);
+                    const baseR = minR + t * ringSpan;
+                    const warpDepth = ringSpan / NUM_RINGS * 2.8 * (0.3 + 0.7 * t);
+
+                    const tIdx = Math.round(t * (n - 1));
+                    let maxVal = -1, domCh = 0;
+                    for (let c = 0; c < ch; c++) {
+                        if (smoothed[c][tIdx] > maxVal) { maxVal = smoothed[c][tIdx]; domCh = c; }
+                    }
+                    const { h: hBase, s: sBase } = getChannelColor(domCh, ch, avgs);
+                    const hShift = (r / NUM_RINGS) * 30 - 15;
+                    p.stroke((hBase + hShift + 360) % 360, sBase * 0.85, 55 + 35 * t, 0.55 + 0.35 * maxVal);
+                    p.strokeWeight(0.6 + t * 0.7);
+
+                    p.beginShape();
+                    for (let a = 0; a <= STEPS; a++) {
+                        const deg = (a % STEPS) * (360 / STEPS);
+                        const rad = (deg / 360) * p.TWO_PI - p.HALF_PI;
+                        const warp = getWarp(r, deg);
+                        const R = baseR + (warp - 0.5) * warpDepth;
+                        p.vertex(cx + Math.cos(rad) * R, cy + Math.sin(rad) * R);
+                    }
+                    p.endShape(p.CLOSE);
+                }
+                p.noStroke(); p.fill(0, 0, 85, 0.5);
+                p.ellipse(cx, cy, 4, 4);
+            };
+
             const dashPanelRender = (type, data, avgs, nCh, bx, by, bw, bh) => {
                 switch(type) {
                     case 'sparklines':  _dp_sparklines(data,avgs,nCh,bx,by,bw,bh);  break;
@@ -2527,7 +2636,8 @@
                     case 'sigilResult':   _dp_sigilResult(data,avgs,nCh,bx,by,bw,bh);   break;
                     case 'fortuneTeller':   _dp_fortuneTeller(data,avgs,nCh,bx,by,bw,bh);   break;
                     case 'fortuneOctagram': _dp_fortuneOctagram(data,avgs,nCh,bx,by,bw,bh); break;
-                    case 'countdown':       _dp_countdown(bx,by,bw,bh);                      break;
+                    case 'countdown':         _dp_countdown(bx,by,bw,bh);                        break;
+                    case 'fingerprintArcs':   _dp_fingerprintArcs(data,avgs,nCh,bx,by,bw,bh);   break;
                     // 'empty': nothing
                 }
             };
@@ -3495,6 +3605,123 @@
                     p.ellipse(cx, cy, 5, 5);
                 }, // End concentricArcs
 
+                fingerprintArcs: (data) => {
+                    // ─── Fingerprint Arcs — sensor-warped concentric ridge rings ──
+                    if (data.length === 0 || data[0].length === 0) return;
+
+                    const W = p.width, H = p.height;
+                    const cx = W / 2, cy = H / 2;
+                    p.background(0, 0, 6);
+
+                    const nCh = Math.min(data[0].length, 8);
+                    const n   = data.length;
+
+                    // Per-channel averages (for colour) and per-timestep per-channel lookup
+                    const avgs = Array.from({ length: nCh }, (_, j) =>
+                        data.reduce((s, row) => s + (row[j] || 0), 0) / n);
+
+                    // Build per-angle, per-ring smoothed radial displacement
+                    // We treat the 8 sensors as 8 angular "sectors" of the fingerprint.
+                    // Between sensors we smoothly interpolate so the ring warps continuously.
+                    const STEPS = 360;          // angular resolution
+                    const NUM_RINGS = 72;       // density of fingerprint ridges
+                    const maxR = Math.min(W, H) * 0.46;
+                    const minR = maxR * 0.04;
+                    const ringSpan = maxR - minR;
+
+                    // For each ring we compute a warp profile around 360 degrees.
+                    // The warp uses: base ring position + sensor-value displacement
+                    // that varies angularly (each sensor owns a sector) AND radially
+                    // (outer rings are influenced more by recent data, inner by older).
+
+                    // Smooth the time series per channel with a wide window first
+                    const smoothed = Array.from({ length: nCh }, (_, ch) => {
+                        const win = Math.max(5, Math.round(n * 0.06));
+                        const half = Math.floor(win / 2);
+                        return Array.from({ length: n }, (__, i) => {
+                            let s = 0, c = 0;
+                            for (let k = i - half; k <= i + half; k++) {
+                                s += data[Math.max(0, Math.min(n - 1, k))][ch] || 0;
+                                c++;
+                            }
+                            return s / c / 360; // 0..1
+                        });
+                    });
+
+                    // Build the angular warp envelope: for each angle theta, interpolate
+                    // sensor values. Sensors are evenly spread around 360°.
+                    // Each ring maps to a time index (inner=start, outer=end).
+                    const getWarp = (ring, angleDeg) => {
+                        // ring: 0..NUM_RINGS-1, angleDeg: 0..360
+                        const tIdx = Math.round((ring / NUM_RINGS) * (n - 1));
+                        const angRad = (angleDeg / 360) * p.TWO_PI;
+
+                        // Interpolate between the two nearest sensor sectors
+                        const sectorSize = 360 / nCh;
+                        const floatSector = angleDeg / sectorSize;
+                        const s0 = Math.floor(floatSector) % nCh;
+                        const s1 = (s0 + 1) % nCh;
+                        const t  = floatSector - Math.floor(floatSector);
+                        // Smooth hermite blend
+                        const blend = t * t * (3 - 2 * t);
+                        return smoothed[s0][tIdx] * (1 - blend) + smoothed[s1][tIdx] * blend;
+                    };
+
+                    // Draw rings — each ring is a closed polyline whose radius varies
+                    p.noFill();
+                    for (let r = 0; r < NUM_RINGS; r++) {
+                        const t      = r / (NUM_RINGS - 1);          // 0..1 outer
+                        const baseR  = minR + t * ringSpan;
+
+                        // Warp depth scales with ring radius (outer rings warp more)
+                        const warpDepth = ringSpan / NUM_RINGS * 2.8 * (0.3 + 0.7 * t);
+
+                        // Colour: blend across sensors based on average, shift hue by ring
+                        // Use a dominant sensor for hue — the one with highest avg at this time
+                        const tIdx = Math.round(t * (n - 1));
+                        let maxVal = -1, domCh = 0;
+                        for (let ch = 0; ch < nCh; ch++) {
+                            if (smoothed[ch][tIdx] > maxVal) { maxVal = smoothed[ch][tIdx]; domCh = ch; }
+                        }
+                        const { h: hBase, s: sBase } = getChannelColor(domCh, nCh, avgs);
+                        const hShift = (r / NUM_RINGS) * 30 - 15; // slight hue drift across rings
+                        const alpha  = 0.55 + 0.35 * maxVal;
+                        const brt    = 60 + 30 * t;
+                        p.stroke((hBase + hShift + 360) % 360, sBase * 0.85, brt, alpha);
+                        p.strokeWeight(0.7 + t * 0.8);
+
+                        p.beginShape();
+                        for (let a = 0; a <= STEPS; a++) {
+                            const deg   = (a % STEPS) * (360 / STEPS);
+                            const rad   = (deg / 360) * p.TWO_PI - p.HALF_PI;
+                            const warp  = getWarp(r, deg);
+                            const R     = baseR + (warp - 0.5) * warpDepth;
+                            p.vertex(cx + Math.cos(rad) * R, cy + Math.sin(rad) * R);
+                        }
+                        p.endShape(p.CLOSE);
+                    }
+
+                    // ── Overlay: radial sensor spokes (faint) ──────────────────────
+                    for (let ch = 0; ch < nCh; ch++) {
+                        const { h: chH, s: chS } = getChannelColor(ch, nCh, avgs);
+                        const spokeAngle = -p.HALF_PI + (ch / nCh) * p.TWO_PI;
+                        const avg01 = avgs[ch] / 360;
+                        const spokeR = minR + avg01 * ringSpan;
+                        p.stroke(chH, chS, 90, 0.18);
+                        p.strokeWeight(0.5);
+                        p.line(
+                            cx + Math.cos(spokeAngle) * minR * 0.5,
+                            cy + Math.sin(spokeAngle) * minR * 0.5,
+                            cx + Math.cos(spokeAngle) * spokeR,
+                            cy + Math.sin(spokeAngle) * spokeR
+                        );
+                    }
+
+                    // Centre dot
+                    p.noStroke(); p.fill(0, 0, 85, 0.6);
+                    p.ellipse(cx, cy, 6, 6);
+                }, // End fingerprintArcs
+
                 auraDashboard: (data) => {
                     if (data.length === 0 || data[0].length === 0) return;
                     const nCh = data[0].length;
@@ -4368,11 +4595,11 @@
                 const offImgd = octx.createImageData(rw, rh);
 
                 // Intensity pulses — strong at start/end, with random spikes
-                const pulse = (1 - progress) * 0.7 + Math.random() * 0.3;
+                const pulse = Math.min(1, ((1 - progress) * 0.7 + Math.random() * 0.3) * glitchIntensity);
                 const rng = (lo, hi) => lo + Math.random() * (hi - lo);
 
                 // Number of scan-tear bands this frame
-                const nBands = Math.floor(pulse * 8) + 2;
+                const nBands = glitchLines ? Math.floor(pulse * 8) + 2 : 0;
 
                 // Build per-row horizontal shift map
                 const shifts = new Int16Array(rh);
@@ -4398,17 +4625,18 @@
                     for (let x = 0; x < rw; x++) {
                         const dst = (y * rw + x) * 4;
 
-                        if (flashRow) {
+                        if (glitchLines && flashRow) {
                             od[dst] = od[dst+1] = od[dst+2] = 220 + (Math.random()*35)|0;
                             od[dst+3] = 255;
                             continue;
                         }
 
-                        // Source x with band shift
-                        const sx = Math.max(0, Math.min(rw - 1, x + sh));
+                        // Source x with band shift (only when lines enabled)
+                        const sx = glitchLines ? Math.max(0, Math.min(rw - 1, x + sh)) : x;
+
                         // Chromatic-aberration reads: R shifted +chroma, B shifted -chroma
-                        const rx  = Math.max(0, Math.min(rw - 1, sx + chromaShift));
-                        const bx2 = Math.max(0, Math.min(rw - 1, sx - chromaShift));
+                        const rx  = glitchChromatic ? Math.max(0, Math.min(rw - 1, sx + chromaShift)) : sx;
+                        const bx2 = glitchChromatic ? Math.max(0, Math.min(rw - 1, sx - chromaShift)) : sx;
 
                         const si  = (y * rw + sx)  * 4;
                         const ri  = (y * rw + rx)   * 4;
@@ -4420,7 +4648,7 @@
                         od[dst+3] = 255;
 
                         // Random noise pixels
-                        if (Math.random() < pulse * 0.04) {
+                        if (glitchStatic && Math.random() < pulse * 0.04) {
                             const v = (Math.random() * 255)|0;
                             od[dst] = od[dst+1] = od[dst+2] = v;
                         }
@@ -4428,7 +4656,7 @@
                 }
 
                 // Occasional full-width dark dropout band
-                if (Math.random() < pulse * 0.35) {
+                if (glitchStatic && Math.random() < pulse * 0.35) {
                     const dropY = Math.floor(Math.random() * rh);
                     const dropH = Math.floor(rng(1, 4));
                     for (let y = dropY; y < Math.min(rh, dropY + dropH); y++) {
@@ -4669,6 +4897,25 @@
                         for (let i = 1; i <= 3; i++) {
                             p.stroke(h, s, b, 0.4 + i * 0.15);
                             p.arc(cx, cy, r * i * 0.67, r * i * 0.67, -p.HALF_PI, p.PI);
+                        }
+                        break;
+                    }
+                    case 'fingerprintArcs': {
+                        p.noFill();
+                        const fpRings = 8;
+                        for (let i = 0; i < fpRings; i++) {
+                            const t = (i + 0.5) / fpRings;
+                            const rr = r * 0.18 + t * r * 0.82;
+                            p.stroke(h, s, b, 0.35 + t * 0.45);
+                            p.strokeWeight(0.6);
+                            const pts2 = 40;
+                            p.beginShape();
+                            for (let a2 = 0; a2 <= pts2; a2++) {
+                                const ang = (a2 / pts2) * p.TWO_PI - p.HALF_PI;
+                                const wv = p.sin(ang * 3 + i * 1.3) * rr * 0.08;
+                                p.vertex(cx + p.cos(ang) * (rr + wv), cy + p.sin(ang) * (rr + wv));
+                            }
+                            p.endShape(p.CLOSE);
                         }
                         break;
                     }
@@ -5943,6 +6190,21 @@
 
         allowClickFullscreenCheckbox.addEventListener('change', (e) => {
             allowClickFullscreen = e.target.checked;
+            saveSettings();
+        });
+
+        glitchLinesCheckbox.addEventListener('change', (e) => {
+            glitchLines = e.target.checked; saveSettings();
+        });
+        glitchStaticCheckbox.addEventListener('change', (e) => {
+            glitchStatic = e.target.checked; saveSettings();
+        });
+        glitchChromaticCheckbox.addEventListener('change', (e) => {
+            glitchChromatic = e.target.checked; saveSettings();
+        });
+        glitchIntensitySlider.addEventListener('input', (e) => {
+            glitchIntensity = parseFloat(e.target.value);
+            glitchIntensityValue.textContent = glitchIntensity.toFixed(1);
             saveSettings();
         });
 
