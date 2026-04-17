@@ -606,7 +606,8 @@
         let keepReading = false; // Flag to control the reading loop
         let incomingBuffer = ''; // Buffer for incomplete serial lines
 
-        let isCollecting = false; // Flag for data collection state
+        let isCollecting = false;   // Flag for data collection state
+        let isProcessing = false;   // True for the single frame between collection end and viz render
         let collectionStartTime;
         let collectionTimerId;
         let collectedData = []; // Array to store collected data [[val1, val2,...], [val1, val2,...]]
@@ -1864,6 +1865,7 @@
             if (isCollecting) return;
 
             hideError();
+            isProcessing = false;
             collectedData = [];
             // Reset expected length for this specific collection run
             expectedDataLength = -1;
@@ -1947,16 +1949,16 @@
                 // Mark that a real collection just ended — allows one auto-save
                 pendingResultSave = true;
 
+                // Show processing indicator immediately, then render viz on next frame
+                isProcessing = true;
+                p5Instance.loop(); // run at least one frame to show the indicator
+
                 // Animated reveals — keep loop alive; they self-pause when done
                 if (currentVisualization === 'sigilResult') {
-                    p5Instance.loop();
                     setTimeout(saveCurrentResult, 4500);
                 } else if (currentVisualization === 'fortuneTeller') {
-                    p5Instance.loop();
                     // Screenshot triggered automatically when animation completes (fortuneSaveTriggered)
                 } else {
-                    p5Instance.noLoop();
-                    p5Instance.redraw();
                     setTimeout(saveCurrentResult, 120);
                 }
             }
@@ -1985,6 +1987,7 @@
 
         function resetToWatching() {
             // Called after the display hold period ends
+            isProcessing = false;
             displayHoldStartTime = null;
             collectedData = [];
             expectedDataLength = -1;
@@ -6004,10 +6007,50 @@
 
                 } else if (collectedData.length > 0) {
                      // --- Post-Collection Logic ---
+
+                    // ── Processing indicator ──────────────────────────────────────
+                    if (isProcessing) {
+                        isProcessing = false; // next frame will render the actual viz
+                        p.colorMode(p.HSB, 360, 100, 100, 1);
+                        p.background(0, 0, 6);
+                        const W2 = p.width, H2 = p.height;
+                        const cx2 = W2 / 2, cy2 = H2 / 2;
+                        const t2 = (p.frameCount % 60) / 60;
+
+                        // Spinning arc
+                        const arcR = Math.min(W2, H2) * 0.08;
+                        p.noFill();
+                        p.stroke(0, 0, 22);
+                        p.strokeWeight(arcR * 0.18);
+                        p.ellipse(cx2, cy2, arcR * 2, arcR * 2);
+                        p.stroke(200, 40, 88);
+                        p.arc(cx2, cy2, arcR * 2, arcR * 2,
+                            t2 * p.TWO_PI - p.HALF_PI,
+                            t2 * p.TWO_PI - p.HALF_PI + p.TWO_PI * 0.28);
+
+                        // Label
+                        p.noStroke();
+                        p.fill(0, 0, 72);
+                        p.textAlign(p.CENTER, p.CENTER);
+                        p.textFont('sans-serif');
+                        p.textSize(Math.max(11, Math.min(W2, H2) * 0.022));
+                        p.text('Processing…', cx2, cy2 + arcR * 1.9);
+
+                        // Data-point count
+                        p.fill(0, 0, 42);
+                        p.textSize(Math.max(9, Math.min(W2, H2) * 0.015));
+                        p.text(`${collectedData.length} samples`, cx2, cy2 + arcR * 2.8);
+                        return; // don't run the viz this frame
+                    }
+
                     p.background(255); // Clear background for final visualization
                     if (visualizations[currentVisualization]) {
                         try {
                             visualizations[currentVisualization](collectedData);
+                            // Viz rendered — stop looping unless installation mode keeps it going
+                            if (!isInstallationMode || !autoSceneChange) {
+                                if (!ANIMATED_RESULT_VIZZES.includes(currentVisualization)) p.noLoop();
+                            }
                             // --- Scene-change countdown timer (same style as reading timer) ---
                             if (!capturingScreenshot && isInstallationMode && autoSceneChange && displayHoldStartTime) {
                                 const elapsed = Date.now() - displayHoldStartTime;

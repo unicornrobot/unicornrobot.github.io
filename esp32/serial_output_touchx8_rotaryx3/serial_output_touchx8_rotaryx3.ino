@@ -152,15 +152,15 @@ unsigned long count = 0;
 const float dataSmoothingFactor = 0.5;//0.5 default
 const float baselineSmoothingFactor = 0.9999;
 
-//T9 = IO32
-//T0 = IO4
-//T8 = IO33
-//T3 = IO15
-//T7 = IO27
-//T4 = IO13
-//T6 = IO14
-//T5 = IO12
-int sensorPins[8] = {T9, T0, T8, T3, T7, T4, T6, T5};
+// T9 IO32
+// T0 IO4
+// T8 IO33
+// T3 IO15
+// T7 IO27
+// T4 IO13
+// T6 IO14
+// T5 IO12
+int sensorPins[8] = {32, 4, 33, 15, 27, 13, 14, 12};
 
 int minValues[8]; // full-touch (low raw value)
 int maxValues[8]; // no-touch   (high raw value)
@@ -279,6 +279,7 @@ void resetCalibration() {
 void setup()
 {
   Serial.begin(115200);
+  delay(100);
 
   EEPROM.begin(EEPROM_SIZE);
   loadCalibrationFromEEPROM();
