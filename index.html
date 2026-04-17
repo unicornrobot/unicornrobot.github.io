@@ -1246,8 +1246,11 @@
                     // Apply settings directly to UI elements and global variables
                     collectDurationInput.value = settings.collectDuration || '10';
                     collectIndefinitelyCheckbox.checked = settings.collectIndefinitely || false;
-                    liveVizSelect.value = settings.liveViz || 'centeredStrips';
-                    vizSelect.value = settings.finalViz || 'lines'; // Keep 'lines' as default or change if desired
+                    // Set globals before rebuildVizSelects so the correct option is marked selected
+                    currentLiveVisualization = settings.liveViz || 'centeredStrips';
+                    currentVisualization     = settings.finalViz || 'auraDashboard';
+                    liveVizSelect.value = currentLiveVisualization;
+                    vizSelect.value     = currentVisualization;
                     overlaySpeedSlider.value = settings.overlaySpeed || '1.0';
                     // Load and clamp opacity
                     let loadedOpacity = parseFloat(settings.overlayOpacity || '0.7');
@@ -1285,8 +1288,7 @@
 
                     // Update global variables based on loaded settings
                     collectIndefinitely = collectIndefinitelyCheckbox.checked;
-                    currentLiveVisualization = liveVizSelect.value;
-                    currentVisualization = vizSelect.value;
+                    // currentLiveVisualization and currentVisualization already set above (before rebuildVizSelects)
                     overlayDrawSpeed = parseFloat(overlaySpeedSlider.value);
                     overlayDrawAlpha = loadedOpacity; // Use the clamped loaded value
                     overlayWeftHeight = parseInt(overlayWeftHeightSlider.value, 10);
