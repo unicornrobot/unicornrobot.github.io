@@ -4796,9 +4796,17 @@
                         }
 
                         if (hit) {
-                            // If a viewer panel was clicked, ignore it as a source
                             const hitTile = dashboardLayout.tiles.find(t => t.id === hit.id);
-                            if (hitTile && hitTile.type !== 'viewer' && hitTile.type !== 'empty') {
+                            if (hitTile && hitTile.type === 'viewer') {
+                                // Clicking the viewer returns to waiting screen
+                                p._glitchPanels.set(hit.id, { startFrame: p.frameCount });
+                                p.loop();
+                                p.playGlitchSound();
+                                if (hideGlitchCursor) p.canvas.style.cursor = 'none';
+                                setTimeout(() => startWatching(), 400);
+                                return;
+                            }
+                            if (hitTile && hitTile.type !== 'empty') {
                                 p._dashViewerSource = hitTile.type;
                             }
                             p._glitchPanels.set(hit.id, { startFrame: p.frameCount });
