@@ -1,9 +1,10 @@
 // Thermal printer server for EM5820 — writes raw ESC/POS to /dev/usb/lp0
 // Run: node print-server.js
-// Requires: npm install express
+// Requires: npm install express  (no other dependencies)
 
 const express = require('express');
 const fs      = require('fs');
+const path    = require('path');
 
 const PRINTER = '/dev/usb/lp0';
 const PORT    = 3001;

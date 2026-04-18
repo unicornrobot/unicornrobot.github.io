@@ -6901,14 +6901,47 @@
                 const ts = new Date().toLocaleString();
                 const vizEntry = vizRegistry.results.find(v => v.key === currentVisualization);
                 const vizLabel = vizEntry ? vizEntry.label : currentVisualization;
+
+                const ELEMENT_NAMES = ['EARTH','WATER','FIRE','AIR','AETHER','SHADOW','RADIANCE','VOID'];
+                const FORTUNES = [
+                    ["roots seek deeper soil — rest before you reach",
+                     "steady ground holds you — quiet growth unfolds",
+                     "you are anchored — from this foundation all things rise"],
+                    ["still waters within — hold what you feel",
+                     "your current moves unseen — trust its pull",
+                     "the tide is full — let your intuition carry you"],
+                    ["embers await the breath that will rouse them",
+                     "a steady flame burns — enough to light the way",
+                     "you burn with purpose — transformation follows"],
+                    ["thoughts gather like clouds — clarity will come",
+                     "you move through ideas with ease — keep speaking",
+                     "your mind is sharp — ideas arrive before you seek them"],
+                    ["the veil is thick today — patience thins it",
+                     "unseen currents reach you — you are not alone",
+                     "you touch the larger pattern — no accident"],
+                    ["what is hidden rests — honour what you cannot see",
+                     "something stirs beneath — name it gently",
+                     "what was concealed seeks light — do not look away"],
+                    ["your light turns inward — it will return",
+                     "you emit warmth — others are drawn to what you make",
+                     "you shine without effort — creativity seeks its outlet"],
+                    ["you are full — find the hollow for something new",
+                     "space within holds possibility — do not fill it yet",
+                     "the vast quiet within is your greatest gift"],
+                ];
+
+                const fortuneLines = [];
+                for (let i = 0; i < Math.min(8, avgs.length); i++) {
+                    const band = avgs[i] < 120 ? 0 : avgs[i] < 240 ? 1 : 2;
+                    fortuneLines.push(`${ELEMENT_NAMES[i]}: ${FORTUNES[i][band]}`);
+                }
+
                 const lines = [
                     'UNICORN ROBOT',
                     '--- Aura Reading ---',
                     ts,
-                    `Mode: ${vizLabel}`,
-                    `Points: ${collectedData.length}`,
-                    '---',
-                    ...avgs.map((v, i) => `Ch${i}: ${v}`),
+                    '',
+                    ...fortuneLines,
                     '',
                 ];
                 const baseUrl = (printServerUrl.value || 'http://localhost:3001').replace(/\/$/, '');
