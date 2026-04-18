@@ -539,6 +539,10 @@
                                 <label for="radioSoundLiveCheckbox" style="font-size:11px;">Play during collection</label>
                             </div>
                             <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="autoPrintResultCheckbox">
+                                <label for="autoPrintResultCheckbox" style="font-size:11px;">Print on result</label>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px;">
                                 <input type="checkbox" id="allowClickFullscreenCheckbox" checked>
                                 <label for="allowClickFullscreenCheckbox" style="font-size:11px;">Allow click-to-fullscreen</label>
                             </div>
@@ -668,6 +672,7 @@
         let overlayCurrentY = -1; // Current drawing Y position for overlay (-1 indicates reset needed)
         let isDebugMode = false; // Flag for debug mode state - NEW
         let autoSaveResults = true; // Whether to save a snapshot after each reading
+        let autoPrintResult = false; // Whether to auto-print fortune after each reading (installation mode)
         let pendingResultSave = false; // True only after a real collection ends — gates all auto-saves
         let capturingScreenshot = false; // Suppresses overlay UI (timers etc.) during screen grab
         let originalCanvasHeight = 400; // Store the original height - NEW
@@ -1073,6 +1078,7 @@
         const installationModeCheckbox  = document.getElementById('installationModeCheckbox');
         const hideGlitchCursorCheckbox      = document.getElementById('hideGlitchCursorCheckbox');
         const allowClickFullscreenCheckbox  = document.getElementById('allowClickFullscreenCheckbox');
+        const autoPrintResultCheckbox       = document.getElementById('autoPrintResultCheckbox');
         const glitchLinesCheckbox           = document.getElementById('glitchLinesCheckbox');
         const glitchStaticCheckbox          = document.getElementById('glitchStaticCheckbox');
         const glitchChromaticCheckbox       = document.getElementById('glitchChromaticCheckbox');
@@ -1288,6 +1294,7 @@
                 radioSoundWaiting:     radioSoundWaitingCheckbox.checked,
                 radioSoundLive:        radioSoundLiveCheckbox.checked,
                 allowClickFullscreen: allowClickFullscreenCheckbox.checked,
+                autoPrintResult: autoPrintResultCheckbox.checked,
                 triggerSensors: triggerSensorsInput.value,
                 triggerMinCount: triggerMinCountInput.value,
                 triggerThreshold: triggerThresholdInput.value,
@@ -1362,6 +1369,8 @@
                     radioSoundLive    = radioSoundLiveCheckbox.checked;
                     allowClickFullscreenCheckbox.checked = settings.allowClickFullscreen !== false; // default true
                     allowClickFullscreen = allowClickFullscreenCheckbox.checked;
+                    autoPrintResultCheckbox.checked = settings.autoPrintResult === true;
+                    autoPrintResult = autoPrintResultCheckbox.checked;
                     if (settings.triggerSensors) triggerSensorsInput.value = settings.triggerSensors;
                     if (settings.triggerMinCount) { triggerMinCountInput.value = settings.triggerMinCount; TRIGGER_MIN_COUNT = parseInt(settings.triggerMinCount, 10); }
                     if (settings.triggerThreshold) { triggerThresholdInput.value = settings.triggerThreshold; TRIGGER_THRESHOLD = parseInt(settings.triggerThreshold, 10); }
@@ -2067,6 +2076,7 @@
                 }
                 // Mark that a real collection just ended — allows one auto-save
                 pendingResultSave = true;
+                if (autoPrintResult) setTimeout(printReading, 500);
 
                 // Show processing indicator immediately, then render viz on next frame
                 isProcessing = true;
@@ -7051,6 +7061,11 @@
 
         allowClickFullscreenCheckbox.addEventListener('change', (e) => {
             allowClickFullscreen = e.target.checked;
+            saveSettings();
+        });
+
+        autoPrintResultCheckbox.addEventListener('change', (e) => {
+            autoPrintResult = e.target.checked;
             saveSettings();
         });
 
