@@ -5112,7 +5112,8 @@
             //   staticGain  = lerp(STATIC_MAX, 0,          proximity)
             //   signalGain  = lerp(0,          SIGNAL_MAX, proximity)
             //
-            let _radioNodes = null; // initialised lazily on first call
+            let _radioNodes = null;      // initialised lazily, never torn down mid-session
+            let _radioMuted = true;      // starts true so first call always does slow fade-in
 
             const _initRadioAudio = () => {
                 if (_radioNodes) return;
@@ -5121,7 +5122,7 @@
 
                     // ── Master output gain ──────────────────────────────────────
                     const master = ac.createGain();
-                    master.gain.setValueAtTime(0.55, ac.currentTime);
+                    master.gain.setValueAtTime(0, ac.currentTime); // always start silent
                     master.connect(ac.destination);
 
                     // ── Static layer: white noise → sweeping bandpass ───────────
@@ -5172,7 +5173,7 @@
                     noiseBP2.connect(staticMix);
 
                     const staticGain = ac.createGain();
-                    staticGain.gain.setValueAtTime(0.28, ac.currentTime); // start audible
+                    staticGain.gain.setValueAtTime(0, ac.currentTime); // ramped up by updateRadioTuning
                     staticMix.connect(staticGain);
                     staticGain.connect(master);
 
@@ -5231,16 +5232,13 @@
                     const ac = _ensureAudioCtx();
                     const now = ac.currentTime;
                     _radioNodes.master.gain.cancelScheduledValues(now);
-                    _radioNodes.master.gain.setTargetAtTime(0, now, 0.1);
-                    setTimeout(() => {
-                        try { _radioNodes.master.disconnect(); } catch(e) {}
-                        _radioNodes = null;
-                    }, 400);
-                } catch(e) { _radioNodes = null; }
+                    _radioNodes.master.gain.setTargetAtTime(0, now, 0.3);
+                    _radioMuted = true;
+                } catch(e) {}
             };
 
             // proximity: 0 = far from target (full static), 1 = on target (full signal)
-            // Call this each frame (throttled) when radio audio is active
+            // null = silence (fade out master only, keep graph alive)
             p.updateRadioTuning = (proximity) => {
                 if (proximity === null) { _stopRadioAudio(); return; }
                 try {
@@ -5248,23 +5246,30 @@
                     if (!_radioNodes) return;
                     const ac = _ensureAudioCtx();
                     const now = ac.currentTime;
-                    const tau = 0.25; // crossfade time constant — smooth but responsive
 
                     const STATIC_MAX  = 0.28;
                     const SIGNAL_MAX  = 0.22;
+                    const XFADE_TAU   = 0.25; // crossfade time constant
+
+                    // Fade master in slowly if coming from silence
+                    if (_radioMuted) {
+                        _radioMuted = false;
+                        _radioNodes.master.gain.cancelScheduledValues(now);
+                        _radioNodes.master.gain.setTargetAtTime(0.55, now, 1.0); // 1s fade-in
+                    }
 
                     const targetStatic = STATIC_MAX * (1 - proximity);
                     const targetSignal = SIGNAL_MAX * proximity;
 
                     _radioNodes.staticGain.gain.cancelScheduledValues(now);
-                    _radioNodes.staticGain.gain.setTargetAtTime(targetStatic, now, tau);
+                    _radioNodes.staticGain.gain.setTargetAtTime(targetStatic, now, XFADE_TAU);
 
                     _radioNodes.signalGain.gain.cancelScheduledValues(now);
-                    _radioNodes.signalGain.gain.setTargetAtTime(targetSignal, now, tau);
+                    _radioNodes.signalGain.gain.setTargetAtTime(targetSignal, now, XFADE_TAU);
 
                     // As proximity increases, reduce pitch drift so signal "locks in"
                     _radioNodes.driftDepth.gain.cancelScheduledValues(now);
-                    _radioNodes.driftDepth.gain.setTargetAtTime(8 * (1 - proximity * 0.9), now, tau);
+                    _radioNodes.driftDepth.gain.setTargetAtTime(8 * (1 - proximity * 0.9), now, XFADE_TAU);
                 } catch(e) {}
             };
             // ── End radio tuning audio ────────────────────────────────────────────────
