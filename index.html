@@ -473,10 +473,6 @@
                         <div style="border-top:1px solid #222; margin-top:4px; padding-top:6px; display:flex; flex-direction:column; gap:6px;" id="radioDialConfig">
                             <div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:0.08em;">Radio Dial Trigger</div>
                             <div style="display:flex; align-items:center; gap:8px;">
-                                <label style="flex:1; font-size:11px;">Sensor index</label>
-                                <input type="number" id="radioDialSensor" value="0" min="0" max="31" style="width:52px;">
-                            </div>
-                            <div style="display:flex; align-items:center; gap:8px;">
                                 <label style="flex:1; font-size:11px;">Target (0–360)</label>
                                 <input type="number" id="radioDialTarget" value="180" min="0" max="360" style="width:52px;">
                             </div>
@@ -1079,7 +1075,6 @@
         const triggerSensorsContainer = document.getElementById('triggerSensorsContainer');
         const triggerMinCountInput = document.getElementById('triggerMinCount');
         const triggerThresholdInput = document.getElementById('triggerThreshold');
-        const radioDialSensorInput    = document.getElementById('radioDialSensor');
         const radioDialTargetInput    = document.getElementById('radioDialTarget');
         const radioDialToleranceInput = document.getElementById('radioDialTolerance');
         const radioDialHoldInput      = document.getElementById('radioDialHold');
@@ -1360,7 +1355,6 @@
                     if (settings.triggerThreshold) { triggerThresholdInput.value = settings.triggerThreshold; TRIGGER_THRESHOLD = parseInt(settings.triggerThreshold, 10); }
                     if (settings.radioDial) {
                         radioDial = { ...radioDial, ...settings.radioDial };
-                        radioDialSensorInput.value    = radioDial.sensorIndex;
                         radioDialTargetInput.value    = radioDial.targetPos;
                         radioDialToleranceInput.value = radioDial.tolerance;
                         radioDialHoldInput.value      = radioDial.holdSeconds;
@@ -1773,7 +1767,7 @@
                         // Radio dial trigger — only when a ws_radio_dial tile is in the waiting scene
                         const radioTile = waitingSceneLayout.tiles.find(t => t.type === 'ws_radio_dial');
                         if (radioTile && waitingScreenType === 'waitingScene') {
-                            const _rdCh = (radioTile.channel >= 0) ? radioTile.channel : radioDial.sensorIndex;
+                            const _rdCh = (radioTile.channel >= 0) ? radioTile.channel : 0;
                             const needleVal = (absoluteLatestData && absoluteLatestData[_rdCh] != null) ? absoluteLatestData[_rdCh] : 0;
                             const diff = Math.abs(needleVal - radioDial.targetPos);
                             const inZone = diff <= radioDial.tolerance;
@@ -2046,7 +2040,7 @@
             clearTimeout(collectionTimerId); // Clear timer in case stopped manually
             if (p5Instance) p5Instance.updateSensorTones(null); // silence tones
             if (p5Instance) p5Instance.updateRadioTuning(null);  // silence radio audio
-            if (p5Instance) p5Instance.updateRadioHarmonicTone(-1, null);
+            if (p5Instance) p5Instance.updateRadioHarmonicTone(null);
             const collectionEndTime = Date.now();
             const actualDuration = ((collectionEndTime - collectionStartTime) / 1000).toFixed(1);
 
@@ -3143,7 +3137,7 @@
 
             // ws_radio_dial: 1950s-style radio frequency dial
             const _ls_ws_radio_dial = (tile, cx, cy, r) => {
-                const ch  = (tile && tile.channel >= 0) ? tile.channel : radioDial.sensorIndex;
+                const ch  = (tile && tile.channel >= 0) ? tile.channel : 0;
                 const val = (absoluteLatestData && absoluteLatestData[ch] != null)
                             ? absoluteLatestData[ch] : 0;
                 const target  = radioDial.targetPos;
@@ -5281,60 +5275,50 @@
             // Each channel maps to a harmonic in a just-intonation series over A3=220Hz:
             // intervals: unison, maj2, maj3, p4, p5, maj6, maj7, octave
             const RADIO_HARMONIC_FREQS = [220, 247.5, 275, 293.3, 330, 367.5, 412.5, 440];
-            let _radioToneNode = null;   // OscillatorNode (kept alive, freq swapped per channel)
-            let _radioToneGain = null;   // GainNode
-            let _radioToneCh   = -1;     // last active channel
 
-            const _initRadioTone = () => {
-                if (_radioToneNode) return;
+            // 8 independent oscillators — one per channel, always running, gain = 0 when silent
+            const _radioToneOscs  = new Array(8).fill(null);
+            const _radioToneGains = new Array(8).fill(null);
+            let   _radioToneMaster = null;
+
+            const _initRadioTones = () => {
+                if (_radioToneMaster) return;
                 try {
                     const ac = _ensureAudioCtx();
-                    const gain = ac.createGain();
-                    gain.gain.setValueAtTime(0, ac.currentTime);
-                    // Soft filter to make it feel like a tuned station carrier
-                    const filt = ac.createBiquadFilter();
-                    filt.type = 'bandpass';
-                    filt.Q.setValueAtTime(8, ac.currentTime);
-                    const osc = ac.createOscillator();
-                    osc.type = 'sine';
-                    osc.frequency.setValueAtTime(RADIO_HARMONIC_FREQS[0], ac.currentTime);
-                    osc.connect(filt);
-                    filt.connect(gain);
-                    gain.connect(ac.destination);
-                    osc.start();
-                    _radioToneNode = osc;
-                    _radioToneGain = gain;
+                    _radioToneMaster = ac.createGain();
+                    _radioToneMaster.gain.setValueAtTime(1, ac.currentTime);
+                    _radioToneMaster.connect(ac.destination);
+                    for (let i = 0; i < 8; i++) {
+                        const osc  = ac.createOscillator();
+                        const gain = ac.createGain();
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(RADIO_HARMONIC_FREQS[i], ac.currentTime);
+                        gain.gain.setValueAtTime(0, ac.currentTime);
+                        osc.connect(gain);
+                        gain.connect(_radioToneMaster);
+                        osc.start();
+                        _radioToneOscs[i]  = osc;
+                        _radioToneGains[i] = gain;
+                    }
                 } catch(e) {}
             };
 
-            // channel: 0–7 (or -1 to silence); proximity: 0–1
-            p.updateRadioHarmonicTone = (channel, proximity) => {
+            // proximities: array of 8 values (0–1) per channel, or null to silence all
+            p.updateRadioHarmonicTone = (proximities) => {
                 try {
-                    if (channel < 0 || proximity === null) {
-                        if (_radioToneGain) {
-                            const ac = _ensureAudioCtx();
-                            _radioToneGain.gain.cancelScheduledValues(ac.currentTime);
-                            _radioToneGain.gain.setTargetAtTime(0, ac.currentTime, 0.3);
-                        }
-                        _radioToneCh = -1;
-                        return;
-                    }
-                    _initRadioTone();
-                    if (!_radioToneNode) return;
-                    const ac = _ensureAudioCtx();
+                    _initRadioTones();
+                    if (!_radioToneMaster) return;
+                    const ac  = _ensureAudioCtx();
                     const now = ac.currentTime;
-                    const ch  = Math.max(0, Math.min(7, channel));
-                    const freq = RADIO_HARMONIC_FREQS[ch];
-                    // Snap to new frequency when channel changes
-                    if (ch !== _radioToneCh) {
-                        _radioToneNode.frequency.cancelScheduledValues(now);
-                        _radioToneNode.frequency.setValueAtTime(freq, now);
-                        _radioToneCh = ch;
+                    const TAU = 0.15;
+                    for (let i = 0; i < 8; i++) {
+                        const g = _radioToneGains[i];
+                        if (!g) continue;
+                        const prox = (proximities && proximities[i] != null) ? proximities[i] : 0;
+                        const targetGain = 0.14 * prox * prox;
+                        g.gain.cancelScheduledValues(now);
+                        g.gain.setTargetAtTime(targetGain, now, TAU);
                     }
-                    // Volume scales with proximity² for a smooth lock-in feel, max 0.12
-                    const targetGain = 0.12 * proximity * proximity;
-                    _radioToneGain.gain.cancelScheduledValues(now);
-                    _radioToneGain.gain.setTargetAtTime(targetGain, now, 0.2);
                 } catch(e) {}
             };
             // ── End radio harmonic tone ───────────────────────────────────────────────
@@ -5673,16 +5657,21 @@
                     if (isWatching && p.frameCount % 6 === 0) {
                         const _rdTileAudio = waitingSceneLayout.tiles.find(t => t.type === 'ws_radio_dial');
                         if (radioSoundWaiting && _rdTileAudio && waitingScreenType === 'waitingScene') {
-                            const _rdChA = (_rdTileAudio.channel >= 0) ? _rdTileAudio.channel : radioDial.sensorIndex;
+                            const _rdChA = (_rdTileAudio.channel >= 0) ? _rdTileAudio.channel : 0;
                             const val = (absoluteLatestData && absoluteLatestData[_rdChA] != null)
                                 ? absoluteLatestData[_rdChA] : 0;
                             const diff = Math.abs(val - radioDial.targetPos);
                             const proximity = Math.max(0, 1 - diff / radioDial.tolerance);
                             p.updateRadioTuning(proximity);
-                            p.updateRadioHarmonicTone(_rdChA, proximity);
+                            // Per-channel proximities: each sensor's distance from targetPos
+                            const _chProx = Array.from({length: 8}, (_, i) => {
+                                const v = (absoluteLatestData && absoluteLatestData[i] != null) ? absoluteLatestData[i] : 0;
+                                return Math.max(0, 1 - Math.abs(v - radioDial.targetPos) / radioDial.tolerance);
+                            });
+                            p.updateRadioHarmonicTone(_chProx);
                         } else if (!radioSoundWaiting) {
                             p.updateRadioTuning(null);
-                            p.updateRadioHarmonicTone(-1, null);
+                            p.updateRadioHarmonicTone(null);
                         }
                     }
 
@@ -6025,16 +6014,20 @@
                     if (p.frameCount % 6 === 0) {
                         if (radioSoundLive) {
                             const _rdTileLive = waitingSceneLayout.tiles.find(t => t.type === 'ws_radio_dial');
-                            const _rdChL = (_rdTileLive && _rdTileLive.channel >= 0) ? _rdTileLive.channel : radioDial.sensorIndex;
+                            const _rdChL = (_rdTileLive && _rdTileLive.channel >= 0) ? _rdTileLive.channel : 0;
                             const val = (absoluteLatestData && absoluteLatestData[_rdChL] != null)
                                 ? absoluteLatestData[_rdChL] : 0;
                             const diff = Math.abs(val - radioDial.targetPos);
                             const proximity = Math.max(0, 1 - diff / radioDial.tolerance);
                             p.updateRadioTuning(proximity);
-                            p.updateRadioHarmonicTone(_rdChL, proximity);
+                            const _chProxL = Array.from({length: 8}, (_, i) => {
+                                const v = (absoluteLatestData && absoluteLatestData[i] != null) ? absoluteLatestData[i] : 0;
+                                return Math.max(0, 1 - Math.abs(v - radioDial.targetPos) / radioDial.tolerance);
+                            });
+                            p.updateRadioHarmonicTone(_chProxL);
                         } else {
                             p.updateRadioTuning(null);
-                            p.updateRadioHarmonicTone(-1, null);
+                            p.updateRadioHarmonicTone(null);
                         }
                     }
 
@@ -6896,10 +6889,6 @@
             saveSettings();
         });
 
-        radioDialSensorInput.addEventListener('change', () => {
-            radioDial.sensorIndex = Math.max(0, parseInt(radioDialSensorInput.value, 10) || 0);
-            _radioDialHoldStart = null; saveSettings();
-        });
         radioDialTargetInput.addEventListener('change', () => {
             radioDial.targetPos = Math.max(0, Math.min(360, parseInt(radioDialTargetInput.value, 10) || 0));
             _radioDialHoldStart = null; saveSettings();
