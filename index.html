@@ -6898,35 +6898,36 @@
                 const avgs = Array.from({ length: nCh }, (_, j) =>
                     Math.round(collectedData.reduce((s, row) => s + (row[j] || 0), 0) / collectedData.length)
                 );
-                const ts = new Date().toLocaleString();
+                const _now = new Date();
+                const ts = `${String(_now.getDate()).padStart(2,'0')}/${String(_now.getMonth()+1).padStart(2,'0')}/${_now.getFullYear()} ${String(_now.getHours()).padStart(2,'0')}:${String(_now.getMinutes()).padStart(2,'0')}`;
                 const vizEntry = vizRegistry.results.find(v => v.key === currentVisualization);
                 const vizLabel = vizEntry ? vizEntry.label : currentVisualization;
 
                 const ELEMENT_NAMES = ['EARTH','WATER','FIRE','AIR','AETHER','SHADOW','RADIANCE','VOID'];
                 const FORTUNES = [
-                    ["roots seek deeper soil — rest before you reach",
-                     "steady ground holds you — quiet growth unfolds",
-                     "you are anchored — from this foundation all things rise"],
-                    ["still waters within — hold what you feel",
-                     "your current moves unseen — trust its pull",
-                     "the tide is full — let your intuition carry you"],
+                    ["roots seek deeper soil . rest before you reach",
+                     "steady ground holds you . quiet growth unfolds",
+                     "you are anchored . from this foundation all things rise"],
+                    ["still waters within . hold what you feel",
+                     "your current moves unseen . trust its pull",
+                     "the tide is full . let your intuition carry you"],
                     ["embers await the breath that will rouse them",
-                     "a steady flame burns — enough to light the way",
-                     "you burn with purpose — transformation follows"],
-                    ["thoughts gather like clouds — clarity will come",
-                     "you move through ideas with ease — keep speaking",
-                     "your mind is sharp — ideas arrive before you seek them"],
-                    ["the veil is thick today — patience thins it",
-                     "unseen currents reach you — you are not alone",
-                     "you touch the larger pattern — no accident"],
-                    ["what is hidden rests — honour what you cannot see",
-                     "something stirs beneath — name it gently",
-                     "what was concealed seeks light — do not look away"],
-                    ["your light turns inward — it will return",
-                     "you emit warmth — others are drawn to what you make",
-                     "you shine without effort — creativity seeks its outlet"],
-                    ["you are full — find the hollow for something new",
-                     "space within holds possibility — do not fill it yet",
+                     "a steady flame burns . enough to light the way",
+                     "you burn with purpose . transformation follows"],
+                    ["thoughts gather like clouds . clarity will come",
+                     "you move through ideas with ease . keep speaking",
+                     "your mind is sharp . ideas arrive before you seek them"],
+                    ["the veil is thick today . patience thins it",
+                     "unseen currents reach you . you are not alone",
+                     "you touch the larger pattern . no accident"],
+                    ["what is hidden rests . honour what you cannot see",
+                     "something stirs beneath . name it gently",
+                     "what was concealed seeks light . do not look away"],
+                    ["your light turns inward . it will return",
+                     "you emit warmth . others are drawn to what you make",
+                     "you shine without effort . creativity seeks its outlet"],
+                    ["you are full . find the hollow for something new",
+                     "space within holds possibility . do not fill it yet",
                      "the vast quiet within is your greatest gift"],
                 ];
 
