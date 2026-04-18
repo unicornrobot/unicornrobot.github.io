@@ -586,6 +586,15 @@
                     <div style="display:flex; gap:6px; margin-bottom:6px;">
                         <a href="gallery.html" target="_blank" style="flex:1; display:block; padding:5px 8px; border-radius:5px; border:1px solid #2a2a2a; background:#1a1a1a; color:#bbb; font-size:12px; text-align:center; text-decoration:none; cursor:pointer;">Open Gallery</a>
                     </div>
+                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                        <label style="font-size:10px; color:#555; white-space:nowrap;">Server</label>
+                        <input type="text" id="printServerUrl" value="http://localhost:3001"
+                            style="flex:1; font-size:10px; padding:2px 4px; background:#111; color:#ccc; border:1px solid #333; border-radius:3px;">
+                    </div>
+                    <div style="display:flex; gap:6px; margin-bottom:4px;">
+                        <button id="printReadingBtn" style="flex:1; background:#1a2e1a; color:#86efac; border-color:#1f3d1f;">Print Reading</button>
+                    </div>
+                    <div id="printStatus" style="font-size:10px; color:#555; text-align:center; min-height:14px;"></div>
                     <div style="display:flex; gap:6px;">
                         <button id="exportReadingsBtn" style="flex:1; background:#1a237e; color:#90caf9; border-color:#1a237e;">Export JSON</button>
                         <button id="clearReadingsBtn"  style="flex:1; background:#3b0f0f; color:#f87171; border-color:#4d1515;">Clear All</button>
@@ -1058,6 +1067,9 @@
         const gallerySaveCount    = document.getElementById('gallerySaveCount');
         const exportReadingsBtn   = document.getElementById('exportReadingsBtn');
         const clearReadingsBtn    = document.getElementById('clearReadingsBtn');
+        const printReadingBtn     = document.getElementById('printReadingBtn');
+        const printStatus         = document.getElementById('printStatus');
+        const printServerUrl      = document.getElementById('printServerUrl');
         const installationModeCheckbox  = document.getElementById('installationModeCheckbox');
         const hideGlitchCursorCheckbox      = document.getElementById('hideGlitchCursorCheckbox');
         const allowClickFullscreenCheckbox  = document.getElementById('allowClickFullscreenCheckbox');
@@ -6871,6 +6883,53 @@
             if (!confirm('Delete all saved readings? This cannot be undone.')) return;
             ReadingsDB.clearAll().then(updateGallerySaveCount);
         });
+
+        async function printReading() {
+            if (collectedData.length === 0) {
+                printStatus.textContent = 'No data to print.';
+                printStatus.style.color = '#f87171';
+                return;
+            }
+            printReadingBtn.disabled = true;
+            printStatus.textContent = 'Printing…';
+            printStatus.style.color = '#86efac';
+            try {
+                const nCh  = collectedData[0].length;
+                const avgs = Array.from({ length: nCh }, (_, j) =>
+                    Math.round(collectedData.reduce((s, row) => s + (row[j] || 0), 0) / collectedData.length)
+                );
+                const ts = new Date().toLocaleString();
+                const vizEntry = vizRegistry.results.find(v => v.key === currentVisualization);
+                const vizLabel = vizEntry ? vizEntry.label : currentVisualization;
+                const lines = [
+                    'UNICORN ROBOT',
+                    '--- Aura Reading ---',
+                    ts,
+                    `Mode: ${vizLabel}`,
+                    `Points: ${collectedData.length}`,
+                    '---',
+                    ...avgs.map((v, i) => `Ch${i}: ${v}`),
+                    '',
+                ];
+                const baseUrl = (printServerUrl.value || 'http://localhost:3001').replace(/\/$/, '');
+                const resp = await fetch(`${baseUrl}/print`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lines, cut: true }),
+                });
+                if (!resp.ok) throw new Error(`Server ${resp.status}`);
+                printStatus.textContent = 'Printed.';
+                printStatus.style.color = '#86efac';
+            } catch(e) {
+                printStatus.textContent = `Print failed: ${e.message}`;
+                printStatus.style.color = '#f87171';
+            } finally {
+                printReadingBtn.disabled = false;
+                setTimeout(() => { printStatus.textContent = ''; }, 4000);
+            }
+        }
+
+        printReadingBtn.addEventListener('click', printReading);
 
         triggerSensorsInput.addEventListener('change', (event) => {
             triggerSensorIndices = parseTriggerSensors(event.target.value);
