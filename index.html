@@ -533,6 +533,15 @@
                                 <input type="checkbox" id="soundLiveCheckbox">
                                 <label for="soundLiveCheckbox" style="font-size:11px;">Play during collection</label>
                             </div>
+                            <div style="font-size:10px;color:#555;margin-top:6px;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.08em;">Radio Tuning Sound</div>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="radioSoundWaitingCheckbox" checked>
+                                <label for="radioSoundWaitingCheckbox" style="font-size:11px;">Play on waiting screen</label>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="radioSoundLiveCheckbox">
+                                <label for="radioSoundLiveCheckbox" style="font-size:11px;">Play during collection</label>
+                            </div>
                             <div style="display:flex; align-items:center; gap:6px;">
                                 <input type="checkbox" id="allowClickFullscreenCheckbox" checked>
                                 <label for="allowClickFullscreenCheckbox" style="font-size:11px;">Allow click-to-fullscreen</label>
@@ -700,8 +709,10 @@
         let glitchChromatic = true;      // Chromatic aberration
         let glitchIntensity = 1.0;       // Overall intensity multiplier (0–2)
         let glitchSound     = true;      // Play sound on panel glitch
-        let soundWaiting    = true;      // Play sensor tones on waiting screen
-        let soundLive       = false;     // Play sensor tones during live collection
+        let soundWaiting       = true;   // Play sensor tones on waiting screen
+        let soundLive          = false;  // Play sensor tones during live collection
+        let radioSoundWaiting  = true;   // Play radio tuning audio on waiting screen
+        let radioSoundLive     = false;  // Play radio tuning audio during live collection
         let allowClickFullscreen = true; // Allow click-to-fullscreen toggle
         let isWatching = false;         // Waiting for trigger
         let waitingScreenType = 'sigil'; // 'sigil' | 'vizPicker'
@@ -1062,6 +1073,8 @@
         const glitchSoundCheckbox           = document.getElementById('glitchSoundCheckbox');
         const soundWaitingCheckbox          = document.getElementById('soundWaitingCheckbox');
         const soundLiveCheckbox             = document.getElementById('soundLiveCheckbox');
+        const radioSoundWaitingCheckbox     = document.getElementById('radioSoundWaitingCheckbox');
+        const radioSoundLiveCheckbox        = document.getElementById('radioSoundLiveCheckbox');
         const triggerSensorsInput = document.getElementById('triggerSensorsInput');
         const triggerSensorsContainer = document.getElementById('triggerSensorsContainer');
         const triggerMinCountInput = document.getElementById('triggerMinCount');
@@ -1263,8 +1276,10 @@
                 glitchChromatic:  glitchChromaticCheckbox.checked,
                 glitchIntensity:  parseFloat(glitchIntensitySlider.value),
                 glitchSound:      glitchSoundCheckbox.checked,
-                soundWaiting:     soundWaitingCheckbox.checked,
-                soundLive:        soundLiveCheckbox.checked,
+                soundWaiting:          soundWaitingCheckbox.checked,
+                soundLive:             soundLiveCheckbox.checked,
+                radioSoundWaiting:     radioSoundWaitingCheckbox.checked,
+                radioSoundLive:        radioSoundLiveCheckbox.checked,
                 allowClickFullscreen: allowClickFullscreenCheckbox.checked,
                 triggerSensors: triggerSensorsInput.value,
                 triggerMinCount: triggerMinCountInput.value,
@@ -1334,6 +1349,10 @@
                     soundLiveCheckbox.checked    = settings.soundLive    === true;
                     soundWaiting = soundWaitingCheckbox.checked;
                     soundLive    = soundLiveCheckbox.checked;
+                    radioSoundWaitingCheckbox.checked = settings.radioSoundWaiting !== false;
+                    radioSoundLiveCheckbox.checked    = settings.radioSoundLive    === true;
+                    radioSoundWaiting = radioSoundWaitingCheckbox.checked;
+                    radioSoundLive    = radioSoundLiveCheckbox.checked;
                     allowClickFullscreenCheckbox.checked = settings.allowClickFullscreen !== false; // default true
                     allowClickFullscreen = allowClickFullscreenCheckbox.checked;
                     if (settings.triggerSensors) triggerSensorsInput.value = settings.triggerSensors;
@@ -2025,6 +2044,7 @@
             isWatching = false;
             clearTimeout(collectionTimerId); // Clear timer in case stopped manually
             if (p5Instance) p5Instance.updateSensorTones(null); // silence tones
+            if (p5Instance) p5Instance.updateRadioTuning(null);  // silence radio audio
             const collectionEndTime = Date.now();
             const actualDuration = ((collectionEndTime - collectionStartTime) / 1000).toFixed(1);
 
@@ -2081,6 +2101,7 @@
             isProcessing = false;
             _radioDialHoldStart = null;
             displayHoldStartTime = null;
+            if (p5Instance) p5Instance.updateRadioTuning(null);
             collectedData = [];
             expectedDataLength = -1;
             lastValidProgress = 0;
@@ -5080,6 +5101,174 @@
             };
             // ── End sensor tones ─────────────────────────────────────────────────────
 
+            // ── Radio tuning audio — continuous static ↔ signal crossfade ────────────
+            // Architecture:
+            //   noiseSource → bandpassFilter → staticGain  ─┐
+            //   carrierOsc  → carrierFilter  → signalGain  ─┤→ radioMaster → destination
+            //   wobbleLfo   modulates bandpassFilter.frequency
+            //   crackleOsc  (lowfreq noise burst osc) → signalGain for texture
+            //
+            // proximity (0=far, 1=on target) controls the crossfade:
+            //   staticGain  = lerp(STATIC_MAX, 0,          proximity)
+            //   signalGain  = lerp(0,          SIGNAL_MAX, proximity)
+            //
+            let _radioNodes = null; // initialised lazily on first call
+
+            const _initRadioAudio = () => {
+                if (_radioNodes) return;
+                try {
+                    const ac = _ensureAudioCtx();
+
+                    // ── Master output gain ──────────────────────────────────────
+                    const master = ac.createGain();
+                    master.gain.setValueAtTime(0.55, ac.currentTime);
+                    master.connect(ac.destination);
+
+                    // ── Static layer: white noise → sweeping bandpass ───────────
+                    // Looping noise buffer (1s)
+                    const bufLen = ac.sampleRate;
+                    const noiseBuf = ac.createBuffer(1, bufLen, ac.sampleRate);
+                    const nd = noiseBuf.getChannelData(0);
+                    for (let i = 0; i < bufLen; i++) nd[i] = Math.random() * 2 - 1;
+                    const noiseNode = ac.createBufferSource();
+                    noiseNode.buffer = noiseBuf;
+                    noiseNode.loop = true;
+
+                    // Bandpass for "between stations" frequency sweep texture
+                    const noiseBP = ac.createBiquadFilter();
+                    noiseBP.type = 'bandpass';
+                    noiseBP.frequency.setValueAtTime(900, ac.currentTime);
+                    noiseBP.Q.setValueAtTime(0.8, ac.currentTime);
+
+                    // Second narrower bandpass for crunch layer
+                    const noiseBP2 = ac.createBiquadFilter();
+                    noiseBP2.type = 'bandpass';
+                    noiseBP2.frequency.setValueAtTime(3500, ac.currentTime);
+                    noiseBP2.Q.setValueAtTime(1.4, ac.currentTime);
+
+                    // LFO sweeps noise bandpass centre freq — sounds like scanning
+                    const wobbleLfo = ac.createOscillator();
+                    wobbleLfo.type = 'sine';
+                    wobbleLfo.frequency.setValueAtTime(0.18, ac.currentTime); // very slow sweep
+                    const wobbleDepth = ac.createGain();
+                    wobbleDepth.gain.setValueAtTime(700, ac.currentTime);
+                    wobbleLfo.connect(wobbleDepth);
+                    wobbleDepth.connect(noiseBP.frequency);
+
+                    // Fast flutter LFO for crackle texture
+                    const flutterLfo = ac.createOscillator();
+                    flutterLfo.type = 'sawtooth';
+                    flutterLfo.frequency.setValueAtTime(6.5, ac.currentTime);
+                    const flutterDepth = ac.createGain();
+                    flutterDepth.gain.setValueAtTime(1200, ac.currentTime);
+                    flutterLfo.connect(flutterDepth);
+                    flutterDepth.connect(noiseBP2.frequency);
+
+                    const staticMix = ac.createGain();
+                    staticMix.gain.setValueAtTime(1, ac.currentTime);
+                    noiseNode.connect(noiseBP);
+                    noiseNode.connect(noiseBP2);
+                    noiseBP.connect(staticMix);
+                    noiseBP2.connect(staticMix);
+
+                    const staticGain = ac.createGain();
+                    staticGain.gain.setValueAtTime(0.28, ac.currentTime); // start audible
+                    staticMix.connect(staticGain);
+                    staticGain.connect(master);
+
+                    // ── Signal layer: carrier tone + warmth ──────────────────────
+                    // AM carrier — 455 Hz (classic IF frequency, warm and radio-like)
+                    const carrier = ac.createOscillator();
+                    carrier.type = 'sine';
+                    carrier.frequency.setValueAtTime(455, ac.currentTime);
+
+                    // Subtle pitch drift LFO — slight detuning that resolves on lock
+                    const driftLfo = ac.createOscillator();
+                    driftLfo.type = 'sine';
+                    driftLfo.frequency.setValueAtTime(0.4, ac.currentTime);
+                    const driftDepth = ac.createGain();
+                    driftDepth.gain.setValueAtTime(8, ac.currentTime); // ±8Hz drift
+                    driftLfo.connect(driftDepth);
+                    driftDepth.connect(carrier.frequency);
+
+                    // Warmth: second harmonic (910 Hz) at low level
+                    const harmonic = ac.createOscillator();
+                    harmonic.type = 'sine';
+                    harmonic.frequency.setValueAtTime(910, ac.currentTime);
+
+                    // Lowpass to round off the carrier — gives it warmth
+                    const signalLP = ac.createBiquadFilter();
+                    signalLP.type = 'lowpass';
+                    signalLP.frequency.setValueAtTime(1200, ac.currentTime);
+                    signalLP.Q.setValueAtTime(0.7, ac.currentTime);
+
+                    const signalMix = ac.createGain();
+                    signalMix.gain.setValueAtTime(1, ac.currentTime);
+                    carrier.connect(signalLP);
+                    harmonic.connect(signalLP); // blended in quietly via same LP
+                    signalLP.connect(signalMix);
+
+                    const signalGain = ac.createGain();
+                    signalGain.gain.setValueAtTime(0, ac.currentTime); // start silent
+                    signalMix.connect(signalGain);
+                    signalGain.connect(master);
+
+                    // ── Start everything ─────────────────────────────────────────
+                    noiseNode.start();
+                    wobbleLfo.start();
+                    flutterLfo.start();
+                    carrier.start();
+                    harmonic.start();
+                    driftLfo.start();
+
+                    _radioNodes = { master, staticGain, signalGain, driftDepth, carrier, driftLfo };
+                } catch(e) { _radioNodes = null; /* audio unavailable */ }
+            };
+
+            const _stopRadioAudio = () => {
+                if (!_radioNodes) return;
+                try {
+                    const ac = _ensureAudioCtx();
+                    const now = ac.currentTime;
+                    _radioNodes.master.gain.cancelScheduledValues(now);
+                    _radioNodes.master.gain.setTargetAtTime(0, now, 0.1);
+                    setTimeout(() => {
+                        try { _radioNodes.master.disconnect(); } catch(e) {}
+                        _radioNodes = null;
+                    }, 400);
+                } catch(e) { _radioNodes = null; }
+            };
+
+            // proximity: 0 = far from target (full static), 1 = on target (full signal)
+            // Call this each frame (throttled) when radio audio is active
+            p.updateRadioTuning = (proximity) => {
+                if (proximity === null) { _stopRadioAudio(); return; }
+                try {
+                    _initRadioAudio();
+                    if (!_radioNodes) return;
+                    const ac = _ensureAudioCtx();
+                    const now = ac.currentTime;
+                    const tau = 0.25; // crossfade time constant — smooth but responsive
+
+                    const STATIC_MAX  = 0.28;
+                    const SIGNAL_MAX  = 0.22;
+
+                    const targetStatic = STATIC_MAX * (1 - proximity);
+                    const targetSignal = SIGNAL_MAX * proximity;
+
+                    _radioNodes.staticGain.gain.cancelScheduledValues(now);
+                    _radioNodes.staticGain.gain.setTargetAtTime(targetStatic, now, tau);
+
+                    _radioNodes.signalGain.gain.cancelScheduledValues(now);
+                    _radioNodes.signalGain.gain.setTargetAtTime(targetSignal, now, tau);
+
+                    // As proximity increases, reduce pitch drift so signal "locks in"
+                    _radioNodes.driftDepth.gain.cancelScheduledValues(now);
+                    _radioNodes.driftDepth.gain.setTargetAtTime(8 * (1 - proximity * 0.9), now, tau);
+                } catch(e) {}
+            };
+            // ── End radio tuning audio ────────────────────────────────────────────────
+
             // ── Dashboard + LiveScene free-placement drag/resize state ───────────
             p._dashDragTile = null; p._dashResizeTile = null; p._dashDeleteTile = null;
             p._dashDragOffX = 0; p._dashDragOffY = 0;
@@ -5408,6 +5597,20 @@
                         p.updateSensorTones(absoluteLatestData);
                     } else if (isWatching && !soundWaiting && p.frameCount % 6 === 0) {
                         p.updateSensorTones(null); // ensure silenced if toggled off mid-session
+                    }
+
+                    // Radio tuning audio — ~10Hz update
+                    if (isWatching && p.frameCount % 6 === 0) {
+                        const hasRadioTile = waitingSceneLayout.tiles.some(t => t.type === 'ws_radio_dial');
+                        if (radioSoundWaiting && hasRadioTile && waitingScreenType === 'waitingScene') {
+                            const val = (absoluteLatestData && absoluteLatestData[radioDial.sensorIndex] != null)
+                                ? absoluteLatestData[radioDial.sensorIndex] : 0;
+                            const diff = Math.abs(val - radioDial.targetPos);
+                            const proximity = Math.max(0, 1 - diff / radioDial.tolerance);
+                            p.updateRadioTuning(proximity);
+                        } else if (!radioSoundWaiting) {
+                            p.updateRadioTuning(null);
+                        }
                     }
 
                     if (isWatching && waitingScreenType === 'waitingScene') {
@@ -5744,6 +5947,20 @@
                     } else if (!soundLive && p.frameCount % 6 === 0) {
                         p.updateSensorTones(null);
                     }
+
+                    // Radio tuning audio during live collection
+                    if (p.frameCount % 6 === 0) {
+                        if (radioSoundLive) {
+                            const val = (absoluteLatestData && absoluteLatestData[radioDial.sensorIndex] != null)
+                                ? absoluteLatestData[radioDial.sensorIndex] : 0;
+                            const diff = Math.abs(val - radioDial.targetPos);
+                            const proximity = Math.max(0, 1 - diff / radioDial.tolerance);
+                            p.updateRadioTuning(proximity);
+                        } else {
+                            p.updateRadioTuning(null);
+                        }
+                    }
+
                      // We also need expectedDataLength to know how many streams to expect
                      const numStreams = (expectedDataLength > 0) ? expectedDataLength : 1; // Default to 1 if not set
 
@@ -6689,6 +6906,16 @@
         soundLiveCheckbox.addEventListener('change', (e) => {
             soundLive = e.target.checked;
             if (!soundLive && !soundWaiting && p5Instance) p5Instance.updateSensorTones(null);
+            saveSettings();
+        });
+        radioSoundWaitingCheckbox.addEventListener('change', (e) => {
+            radioSoundWaiting = e.target.checked;
+            if (!radioSoundWaiting && p5Instance) p5Instance.updateRadioTuning(null);
+            saveSettings();
+        });
+        radioSoundLiveCheckbox.addEventListener('change', (e) => {
+            radioSoundLive = e.target.checked;
+            if (!radioSoundLive && !radioSoundWaiting && p5Instance) p5Instance.updateRadioTuning(null);
             saveSettings();
         });
 
