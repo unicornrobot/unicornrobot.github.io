@@ -6931,10 +6931,15 @@
                      "the vast quiet within is your greatest gift"],
                 ];
 
+                const _toAscii = s => s
+                    .replace(/[\u2018\u2019\u0060]/g, "'")
+                    .replace(/[\u201C\u201D]/g, '"')
+                    .replace(/[\u2013\u2014]/g, '-')
+                    .replace(/[^\x00-\x7F]/g, '?');
                 const fortuneLines = [];
                 for (let i = 0; i < Math.min(8, avgs.length); i++) {
                     const band = avgs[i] < 120 ? 0 : avgs[i] < 240 ? 1 : 2;
-                    fortuneLines.push(`${ELEMENT_NAMES[i]}: ${FORTUNES[i][band]}`);
+                    fortuneLines.push(`${ELEMENT_NAMES[i]}: ${_toAscii(FORTUNES[i][band])}`);
                 }
 
                 const lines = [
