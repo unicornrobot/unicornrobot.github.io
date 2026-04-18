@@ -4063,7 +4063,7 @@
                             // Glitch overlay
                             const _gfree = p._glitchPanels.get(tile.id);
                             if (_gfree) {
-                                const _gprog = (p.frameCount - _gfree.startFrame) / GLITCH_DURATION;
+                                const _gprog = (performance.now() - _gfree.startMs) / GLITCH_DURATION_MS;
                                 if (_gprog >= 1) { p._glitchPanels.delete(tile.id); }
                                 else { _applyGlitch(bx, by, bsize, bsize, _gprog); }
                             }
@@ -4130,7 +4130,7 @@
                             // Glitch overlay
                             const _ggrid = p._glitchPanels.get(tile.id);
                             if (_ggrid) {
-                                const _gprog = (p.frameCount - _ggrid.startFrame) / GLITCH_DURATION;
+                                const _gprog = (performance.now() - _ggrid.startMs) / GLITCH_DURATION_MS;
                                 if (_gprog >= 1) { p._glitchPanels.delete(tile.id); }
                                 else { _applyGlitch(bx, by, bw, bh, _gprog); }
                             }
@@ -4799,7 +4799,7 @@
                             const hitTile = dashboardLayout.tiles.find(t => t.id === hit.id);
                             if (hitTile && hitTile.type === 'viewer') {
                                 // Clicking the viewer returns to waiting screen
-                                p._glitchPanels.set(hit.id, { startFrame: p.frameCount });
+                                p._glitchPanels.set(hit.id, { startMs: performance.now() });
                                 p.loop();
                                 p.playGlitchSound();
                                 if (hideGlitchCursor) p.canvas.style.cursor = 'none';
@@ -4809,7 +4809,7 @@
                             if (hitTile && hitTile.type !== 'empty') {
                                 p._dashViewerSource = hitTile.type;
                             }
-                            p._glitchPanels.set(hit.id, { startFrame: p.frameCount });
+                            p._glitchPanels.set(hit.id, { startMs: performance.now() });
                             p.loop();
                             p.playGlitchSound();
                             if (hideGlitchCursor) p.canvas.style.cursor = 'none';
@@ -4840,9 +4840,9 @@
             };
 
             // ── Glitch animation state (auraDashboard panel click) ───────────────
-            // Map of tileId → { startFrame, bx, by, bw, bh }
+            // Map of tileId → { startMs }
             p._glitchPanels = new Map();
-            const GLITCH_DURATION = 48; // frames
+            const GLITCH_DURATION_MS = 800; // milliseconds — framerate-independent
 
             // Apply CRT glitch overlay to a screen region using raw pixel manipulation
             // Offscreen canvas reused across frames for glitch compositing
