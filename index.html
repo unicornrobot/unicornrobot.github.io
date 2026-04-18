@@ -1771,9 +1771,10 @@
                     // --- Installation Mode Trigger Check ---
                     if (isInstallationMode && isWatching && !isCollecting) {
                         // Radio dial trigger — only when a ws_radio_dial tile is in the waiting scene
-                        const hasRadioTile = waitingSceneLayout.tiles.some(t => t.type === 'ws_radio_dial');
-                        if (hasRadioTile && waitingScreenType === 'waitingScene') {
-                            const needleVal = values[radioDial.sensorIndex] || 0;
+                        const radioTile = waitingSceneLayout.tiles.find(t => t.type === 'ws_radio_dial');
+                        if (radioTile && waitingScreenType === 'waitingScene') {
+                            const _rdCh = (radioTile.channel >= 0) ? radioTile.channel : radioDial.sensorIndex;
+                            const needleVal = (absoluteLatestData && absoluteLatestData[_rdCh] != null) ? absoluteLatestData[_rdCh] : 0;
                             const diff = Math.abs(needleVal - radioDial.targetPos);
                             const inZone = diff <= radioDial.tolerance;
                             if (inZone) {
@@ -3140,9 +3141,10 @@
             };
 
             // ws_radio_dial: 1950s-style radio frequency dial
-            const _ls_ws_radio_dial = (cx, cy, r) => {
-                const val     = (absoluteLatestData && absoluteLatestData[radioDial.sensorIndex] != null)
-                                ? absoluteLatestData[radioDial.sensorIndex] : 0;
+            const _ls_ws_radio_dial = (tile, cx, cy, r) => {
+                const ch  = (tile && tile.channel >= 0) ? tile.channel : radioDial.sensorIndex;
+                const val = (absoluteLatestData && absoluteLatestData[ch] != null)
+                            ? absoluteLatestData[ch] : 0;
                 const target  = radioDial.targetPos;
                 const tol     = radioDial.tolerance;
                 const inZone  = Math.abs(val - target) <= tol;
@@ -3470,7 +3472,7 @@
                         case 'ch_foldball': _ls_foldball(val, history, chIdx, nCh, cx, cy, r); break;
                         case 'countdown':   _ls_countdown(cx, cy, r);                          break;
                         case 'ws_sigil':      _ls_ws_sigil(cx, cy, r);                           break;
-                        case 'ws_radio_dial': _ls_ws_radio_dial(cx, cy, r);                      break;
+                        case 'ws_radio_dial': _ls_ws_radio_dial(tile, cx, cy, r);                 break;
                         case 'text':        _ls_text(tile, cx, cy, r);                         break;
                     }
                 } catch(e) { console.warn('liveScene panel error:', tile.type, e); }
@@ -5606,10 +5608,11 @@
 
                     // Radio tuning audio — ~10Hz update
                     if (isWatching && p.frameCount % 6 === 0) {
-                        const hasRadioTile = waitingSceneLayout.tiles.some(t => t.type === 'ws_radio_dial');
-                        if (radioSoundWaiting && hasRadioTile && waitingScreenType === 'waitingScene') {
-                            const val = (absoluteLatestData && absoluteLatestData[radioDial.sensorIndex] != null)
-                                ? absoluteLatestData[radioDial.sensorIndex] : 0;
+                        const _rdTileAudio = waitingSceneLayout.tiles.find(t => t.type === 'ws_radio_dial');
+                        if (radioSoundWaiting && _rdTileAudio && waitingScreenType === 'waitingScene') {
+                            const _rdChA = (_rdTileAudio.channel >= 0) ? _rdTileAudio.channel : radioDial.sensorIndex;
+                            const val = (absoluteLatestData && absoluteLatestData[_rdChA] != null)
+                                ? absoluteLatestData[_rdChA] : 0;
                             const diff = Math.abs(val - radioDial.targetPos);
                             const proximity = Math.max(0, 1 - diff / radioDial.tolerance);
                             p.updateRadioTuning(proximity);
@@ -5956,8 +5959,10 @@
                     // Radio tuning audio during live collection
                     if (p.frameCount % 6 === 0) {
                         if (radioSoundLive) {
-                            const val = (absoluteLatestData && absoluteLatestData[radioDial.sensorIndex] != null)
-                                ? absoluteLatestData[radioDial.sensorIndex] : 0;
+                            const _rdTileLive = waitingSceneLayout.tiles.find(t => t.type === 'ws_radio_dial');
+                            const _rdChL = (_rdTileLive && _rdTileLive.channel >= 0) ? _rdTileLive.channel : radioDial.sensorIndex;
+                            const val = (absoluteLatestData && absoluteLatestData[_rdChL] != null)
+                                ? absoluteLatestData[_rdChL] : 0;
                             const diff = Math.abs(val - radioDial.targetPos);
                             const proximity = Math.max(0, 1 - diff / radioDial.tolerance);
                             p.updateRadioTuning(proximity);
