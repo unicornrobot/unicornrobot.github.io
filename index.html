@@ -946,6 +946,7 @@
             'countdown':       'Countdown Timer',
             'fingerprintArcs': 'Fingerprint Arcs',
             'empty':           'Empty',
+            'viewer':          'Viewer',
         };
 
         // --- Viz Registry ---
@@ -2774,6 +2775,18 @@
                     case 'fortuneOctagram': _dp_fortuneOctagram(data,avgs,nCh,bx,by,bw,bh); break;
                     case 'countdown':         _dp_countdown(bx,by,bw,bh);                        break;
                     case 'fingerprintArcs':   _dp_fingerprintArcs(data,avgs,nCh,bx,by,bw,bh);   break;
+                    case 'viewer': {
+                        if (p._dashViewerSource) {
+                            dashPanelRender(p._dashViewerSource, data, avgs, nCh, bx, by, bw, bh);
+                        } else {
+                            p.noFill(); p.stroke(0,0,35); p.strokeWeight(1);
+                            p.line(bx,by,bx+bw,by+bh); p.line(bx+bw,by,bx,by+bh);
+                            p.fill(0,0,45); p.noStroke();
+                            p.textAlign(p.CENTER,p.CENTER); p.textSize(11);
+                            p.text('click a panel', bx+bw/2, by+bh/2);
+                        }
+                        break;
+                    }
                     // 'empty': nothing
                 }
             };
@@ -4019,20 +4032,7 @@
 
                     const { cols, rows, tiles, mode, panelBg } = dashboardLayout;
 
-                    // Live zoom scale per panel index (0–7) — smoothed toward target
-                    if (!p._dashZoomScales) p._dashZoomScales = new Float32Array(8).fill(1);
-                    const hasLiveData = absoluteLatestData && absoluteLatestData.some(v => v > 0);
-                    let zoomSettled = true;
-                    for (let zi = 0; zi < 8; zi++) {
-                        const lv = (absoluteLatestData && absoluteLatestData[zi] != null) ? absoluteLatestData[zi] : 0;
-                        const target = 1 + p.constrain(lv / 360, 0, 1) * 0.45; // 1.0 → 1.22 range
-                        p._dashZoomScales[zi] += (target - p._dashZoomScales[zi]) * 0.25; // smooth
-                        if (Math.abs(p._dashZoomScales[zi] - target) > 0.001) zoomSettled = false;
-                    }
-                    // Keep looping while live data is changing; stop when settled and no glitches active
-                    if (hasLiveData) {
-                        p.loop();
-                    } else if (zoomSettled && p._glitchPanels.size === 0) {
+                    if (p._glitchPanels.size === 0) {
                         p.noLoop();
                     }
 
@@ -4043,20 +4043,12 @@
                             const bx = tile.fx * W;
                             const by = tile.fy * H;
                             const bsize = tile.fsize * Math.min(W, H);
-                            const zoom = ti < 8 ? p._dashZoomScales[ti] : 1;
-                            const cx = bx + bsize / 2, cy = by + bsize / 2;
-
                             if (panelBg !== false) { p.noStroke(); p.fill(0, 0, 11); p.rect(bx, by, bsize, bsize, 4); }
 
                             p.drawingContext.save();
                             p.drawingContext.beginPath();
                             p.drawingContext.rect(bx, by, bsize, bsize);
                             p.drawingContext.clip();
-                            if (zoom !== 1) {
-                                p.drawingContext.translate(cx, cy);
-                                p.drawingContext.scale(zoom, zoom);
-                                p.drawingContext.translate(-cx, -cy);
-                            }
 
                             try { dashPanelRender(tile.type, data, avgs, nCh, bx, by, bsize, bsize); }
                             catch(e) { console.warn('Dashboard tile error:', tile.type, e); }
@@ -4118,20 +4110,12 @@
                             const by = gap + tile.row * (cellH + gap);
                             const bw = tile.colSpan * cellW + (tile.colSpan - 1) * gap;
                             const bh = tile.rowSpan * cellH + (tile.rowSpan - 1) * gap;
-                            const zoom = ti < 8 ? p._dashZoomScales[ti] : 1;
-                            const cx = bx + bw / 2, cy = by + bh / 2;
-
                             if (panelBg !== false) { p.noStroke(); p.fill(0, 0, 11); p.rect(bx, by, bw, bh, 4); }
 
                             p.drawingContext.save();
                             p.drawingContext.beginPath();
                             p.drawingContext.rect(bx, by, bw, bh);
                             p.drawingContext.clip();
-                            if (zoom !== 1) {
-                                p.drawingContext.translate(cx, cy);
-                                p.drawingContext.scale(zoom, zoom);
-                                p.drawingContext.translate(-cx, -cy);
-                            }
 
                             try { dashPanelRender(tile.type, data, avgs, nCh, bx, by, bw, bh); }
                             catch(e) { console.warn('Dashboard tile error:', tile.type, e); }
@@ -4812,11 +4796,16 @@
                         }
 
                         if (hit) {
+                            // If a viewer panel was clicked, ignore it as a source
+                            const hitTile = dashboardLayout.tiles.find(t => t.id === hit.id);
+                            if (hitTile && hitTile.type !== 'viewer' && hitTile.type !== 'empty') {
+                                p._dashViewerSource = hitTile.type;
+                            }
                             p._glitchPanels.set(hit.id, { startFrame: p.frameCount });
-                            p.loop(); // drive animation until glitch expires (p.draw handles noLoop)
+                            p.loop();
                             p.playGlitchSound();
                             if (hideGlitchCursor) p.canvas.style.cursor = 'none';
-                            return; // don't trigger fullscreen
+                            return;
                         }
 
                         // Clicked on non-panel area — restore cursor
