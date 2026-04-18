@@ -2046,6 +2046,7 @@
             clearTimeout(collectionTimerId); // Clear timer in case stopped manually
             if (p5Instance) p5Instance.updateSensorTones(null); // silence tones
             if (p5Instance) p5Instance.updateRadioTuning(null);  // silence radio audio
+            if (p5Instance) p5Instance.updateRadioHarmonicTone(-1, null);
             const collectionEndTime = Date.now();
             const actualDuration = ((collectionEndTime - collectionStartTime) / 1000).toFixed(1);
 
@@ -5276,6 +5277,68 @@
             };
             // ── End radio tuning audio ────────────────────────────────────────────────
 
+            // ── Radio dial harmonic tone — unique pitch per channel, fades in on lock-in ──
+            // Each channel maps to a harmonic in a just-intonation series over A3=220Hz:
+            // intervals: unison, maj2, maj3, p4, p5, maj6, maj7, octave
+            const RADIO_HARMONIC_FREQS = [220, 247.5, 275, 293.3, 330, 367.5, 412.5, 440];
+            let _radioToneNode = null;   // OscillatorNode (kept alive, freq swapped per channel)
+            let _radioToneGain = null;   // GainNode
+            let _radioToneCh   = -1;     // last active channel
+
+            const _initRadioTone = () => {
+                if (_radioToneNode) return;
+                try {
+                    const ac = _ensureAudioCtx();
+                    const gain = ac.createGain();
+                    gain.gain.setValueAtTime(0, ac.currentTime);
+                    // Soft filter to make it feel like a tuned station carrier
+                    const filt = ac.createBiquadFilter();
+                    filt.type = 'bandpass';
+                    filt.Q.setValueAtTime(8, ac.currentTime);
+                    const osc = ac.createOscillator();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(RADIO_HARMONIC_FREQS[0], ac.currentTime);
+                    osc.connect(filt);
+                    filt.connect(gain);
+                    gain.connect(ac.destination);
+                    osc.start();
+                    _radioToneNode = osc;
+                    _radioToneGain = gain;
+                } catch(e) {}
+            };
+
+            // channel: 0–7 (or -1 to silence); proximity: 0–1
+            p.updateRadioHarmonicTone = (channel, proximity) => {
+                try {
+                    if (channel < 0 || proximity === null) {
+                        if (_radioToneGain) {
+                            const ac = _ensureAudioCtx();
+                            _radioToneGain.gain.cancelScheduledValues(ac.currentTime);
+                            _radioToneGain.gain.setTargetAtTime(0, ac.currentTime, 0.3);
+                        }
+                        _radioToneCh = -1;
+                        return;
+                    }
+                    _initRadioTone();
+                    if (!_radioToneNode) return;
+                    const ac = _ensureAudioCtx();
+                    const now = ac.currentTime;
+                    const ch  = Math.max(0, Math.min(7, channel));
+                    const freq = RADIO_HARMONIC_FREQS[ch];
+                    // Snap to new frequency when channel changes
+                    if (ch !== _radioToneCh) {
+                        _radioToneNode.frequency.cancelScheduledValues(now);
+                        _radioToneNode.frequency.setValueAtTime(freq, now);
+                        _radioToneCh = ch;
+                    }
+                    // Volume scales with proximity² for a smooth lock-in feel, max 0.12
+                    const targetGain = 0.12 * proximity * proximity;
+                    _radioToneGain.gain.cancelScheduledValues(now);
+                    _radioToneGain.gain.setTargetAtTime(targetGain, now, 0.2);
+                } catch(e) {}
+            };
+            // ── End radio harmonic tone ───────────────────────────────────────────────
+
             // ── Dashboard + LiveScene free-placement drag/resize state ───────────
             p._dashDragTile = null; p._dashResizeTile = null; p._dashDeleteTile = null;
             p._dashDragOffX = 0; p._dashDragOffY = 0;
@@ -5616,8 +5679,10 @@
                             const diff = Math.abs(val - radioDial.targetPos);
                             const proximity = Math.max(0, 1 - diff / radioDial.tolerance);
                             p.updateRadioTuning(proximity);
+                            p.updateRadioHarmonicTone(_rdChA, proximity);
                         } else if (!radioSoundWaiting) {
                             p.updateRadioTuning(null);
+                            p.updateRadioHarmonicTone(-1, null);
                         }
                     }
 
@@ -5966,8 +6031,10 @@
                             const diff = Math.abs(val - radioDial.targetPos);
                             const proximity = Math.max(0, 1 - diff / radioDial.tolerance);
                             p.updateRadioTuning(proximity);
+                            p.updateRadioHarmonicTone(_rdChL, proximity);
                         } else {
                             p.updateRadioTuning(null);
+                            p.updateRadioHarmonicTone(-1, null);
                         }
                     }
 
