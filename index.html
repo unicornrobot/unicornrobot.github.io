@@ -6942,10 +6942,21 @@
                     fortuneLines.push(`${ELEMENT_NAMES[i]}: ${_toAscii(FORTUNES[i][band])}`);
                 }
 
+                const _elements = ELEMENT_NAMES.slice(0, Math.min(8, avgs.length));
+                const _maxIdx = avgs.indexOf(Math.max(...avgs.slice(0, _elements.length)));
+                const _minIdx = avgs.indexOf(Math.min(...avgs.slice(0, _elements.length)));
+                const avgLine = _elements.map((n, i) => `${n[0]}${n[1]}:${avgs[i]}`).join(' ');
+                const peakLine = `Highest: ${_elements[_maxIdx]} (${avgs[_maxIdx]})`;
+                const lowLine  = `Lowest:  ${_elements[_minIdx]} (${avgs[_minIdx]})`;
+
                 const lines = [
-                    'UNICORN ROBOT',
+                    'SIGNAL READING',
                     '--- Aura Reading ---',
                     ts,
+                    '',
+                    avgLine,
+                    peakLine,
+                    lowLine,
                     '',
                     ...fortuneLines,
                     '',
