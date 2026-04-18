@@ -470,6 +470,25 @@
                             <label style="flex:1; font-size:11px;">Threshold</label>
                             <input type="number" id="triggerThreshold" value="150" min="0" max="360" style="width:52px;">
                         </div>
+                        <div style="border-top:1px solid #222; margin-top:4px; padding-top:6px; display:flex; flex-direction:column; gap:6px;" id="radioDialConfig">
+                            <div style="font-size:10px;color:#555;text-transform:uppercase;letter-spacing:0.08em;">Radio Dial Trigger</div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <label style="flex:1; font-size:11px;">Sensor index</label>
+                                <input type="number" id="radioDialSensor" value="0" min="0" max="31" style="width:52px;">
+                            </div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <label style="flex:1; font-size:11px;">Target (0–360)</label>
+                                <input type="number" id="radioDialTarget" value="180" min="0" max="360" style="width:52px;">
+                            </div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <label style="flex:1; font-size:11px;">Tolerance ±</label>
+                                <input type="number" id="radioDialTolerance" value="20" min="1" max="180" style="width:52px;">
+                            </div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <label style="flex:1; font-size:11px;">Hold (s)</label>
+                                <input type="number" id="radioDialHold" value="3" min="1" max="30" style="width:52px;">
+                            </div>
+                        </div>
                         <div style="border-top:1px solid #222; margin-top:4px; padding-top:6px; display:flex; flex-direction:column; gap:6px;">
                             <div style="display:flex; align-items:center; gap:6px;">
                                 <input type="checkbox" id="autoSceneChangeCheckbox" checked>
@@ -694,6 +713,15 @@
         let TRIGGER_MIN_COUNT = 3;   // Min number of qualifying sensors to fire trigger
         let TRIGGER_THRESHOLD = 150;  // Value threshold per sensor
         let triggerSensorIndices = [0, 1, 2, 3, 4]; // Which sensor indices to check
+
+        // Radio dial trigger state
+        let radioDial = {
+            targetPos:   180,   // 0–360: target needle position on dial
+            tolerance:   20,    // ±degrees the average must stay within
+            holdSeconds: 3,     // seconds to hold within zone before firing
+            sensorIndex: 0,     // which sensor drives the needle
+        };
+        let _radioDialHoldStart = null; // Date.now() when needle entered zone, null if outside
         // -------------------------
 
         let p5Instance; // To hold the p5 sketch instance
@@ -874,7 +902,8 @@
             'ch_arc_fill': 'Arc Fill',
             'ch_foldball':  'Fold Ball',
             'countdown':   'Countdown Timer',
-            'ws_sigil':    'Waiting Sigil',
+            'ws_sigil':      'Waiting Sigil',
+            'ws_radio_dial': 'Radio Dial',
             'text':        'Text Label',
             'empty':       'Empty',
         };
@@ -1037,6 +1066,10 @@
         const triggerSensorsContainer = document.getElementById('triggerSensorsContainer');
         const triggerMinCountInput = document.getElementById('triggerMinCount');
         const triggerThresholdInput = document.getElementById('triggerThreshold');
+        const radioDialSensorInput    = document.getElementById('radioDialSensor');
+        const radioDialTargetInput    = document.getElementById('radioDialTarget');
+        const radioDialToleranceInput = document.getElementById('radioDialTolerance');
+        const radioDialHoldInput      = document.getElementById('radioDialHold');
         const autoSceneChangeCheckbox = document.getElementById('autoSceneChangeCheckbox');
         const displayHoldSecondsInput = document.getElementById('displayHoldSeconds');
         const sceneChangeDurationRow = document.getElementById('sceneChangeDurationRow');
@@ -1236,6 +1269,7 @@
                 triggerSensors: triggerSensorsInput.value,
                 triggerMinCount: triggerMinCountInput.value,
                 triggerThreshold: triggerThresholdInput.value,
+                radioDial: { ...radioDial },
                 autoSceneChange: autoSceneChange,
                 displayHoldSeconds: DISPLAY_HOLD_MS / 1000,
                 deviceConfig: deviceConfig,
@@ -1305,6 +1339,13 @@
                     if (settings.triggerSensors) triggerSensorsInput.value = settings.triggerSensors;
                     if (settings.triggerMinCount) { triggerMinCountInput.value = settings.triggerMinCount; TRIGGER_MIN_COUNT = parseInt(settings.triggerMinCount, 10); }
                     if (settings.triggerThreshold) { triggerThresholdInput.value = settings.triggerThreshold; TRIGGER_THRESHOLD = parseInt(settings.triggerThreshold, 10); }
+                    if (settings.radioDial) {
+                        radioDial = { ...radioDial, ...settings.radioDial };
+                        radioDialSensorInput.value    = radioDial.sensorIndex;
+                        radioDialTargetInput.value    = radioDial.targetPos;
+                        radioDialToleranceInput.value = radioDial.tolerance;
+                        radioDialHoldInput.value      = radioDial.holdSeconds;
+                    }
                     if (settings.autoSceneChange !== undefined) {
                         autoSceneChange = settings.autoSceneChange;
                         autoSceneChangeCheckbox.checked = autoSceneChange;
@@ -1710,19 +1751,39 @@
 
                     // --- Installation Mode Trigger Check ---
                     if (isInstallationMode && isWatching && !isCollecting) {
-                        const triggerCount = triggerSensorIndices.filter(i => (values[i] || 0) > TRIGGER_THRESHOLD).length;
-                        if (triggerCount >= TRIGGER_MIN_COUNT) {
-                            isWatching = false;
-                            if (waitingScreenType === 'vizPicker') {
-                                const pickerEnabled = vizRegistry.results.filter(v => v.enabled);
-                                const picked = pickerEnabled[vizPickerSelectedIdx] || pickerEnabled[0];
-                                if (picked) {
-                                    currentVisualization = picked.key;
-                                    vizSelect.value = currentVisualization;
-                                    saveSettings();
+                        // Radio dial trigger — only when a ws_radio_dial tile is in the waiting scene
+                        const hasRadioTile = waitingSceneLayout.tiles.some(t => t.type === 'ws_radio_dial');
+                        if (hasRadioTile && waitingScreenType === 'waitingScene') {
+                            const needleVal = values[radioDial.sensorIndex] || 0;
+                            const diff = Math.abs(needleVal - radioDial.targetPos);
+                            const inZone = diff <= radioDial.tolerance;
+                            if (inZone) {
+                                if (_radioDialHoldStart === null) _radioDialHoldStart = Date.now();
+                                const heldMs = Date.now() - _radioDialHoldStart;
+                                if (heldMs >= radioDial.holdSeconds * 1000) {
+                                    _radioDialHoldStart = null;
+                                    isWatching = false;
+                                    startCollection();
                                 }
+                            } else {
+                                _radioDialHoldStart = null;
                             }
-                            startCollection();
+                        } else {
+                            // Standard sigil trigger
+                            const triggerCount = triggerSensorIndices.filter(i => (values[i] || 0) > TRIGGER_THRESHOLD).length;
+                            if (triggerCount >= TRIGGER_MIN_COUNT) {
+                                isWatching = false;
+                                if (waitingScreenType === 'vizPicker') {
+                                    const pickerEnabled = vizRegistry.results.filter(v => v.enabled);
+                                    const picked = pickerEnabled[vizPickerSelectedIdx] || pickerEnabled[0];
+                                    if (picked) {
+                                        currentVisualization = picked.key;
+                                        vizSelect.value = currentVisualization;
+                                        saveSettings();
+                                    }
+                                }
+                                startCollection();
+                            }
                         }
                     }
                     // ---------------------------------------
@@ -2018,6 +2079,7 @@
         function resetToWatching() {
             // Called after the display hold period ends
             isProcessing = false;
+            _radioDialHoldStart = null;
             displayHoldStartTime = null;
             collectedData = [];
             expectedDataLength = -1;
@@ -3056,6 +3118,151 @@
                 p.ellipse(cx, cy, r * 0.06, r * 0.06);
             };
 
+            // ws_radio_dial: 1950s-style radio frequency dial
+            const _ls_ws_radio_dial = (cx, cy, r) => {
+                const val     = (absoluteLatestData && absoluteLatestData[radioDial.sensorIndex] != null)
+                                ? absoluteLatestData[radioDial.sensorIndex] : 0;
+                const target  = radioDial.targetPos;
+                const tol     = radioDial.tolerance;
+                const inZone  = Math.abs(val - target) <= tol;
+                const holdFrac = (_radioDialHoldStart !== null)
+                    ? Math.min(1, (Date.now() - _radioDialHoldStart) / (radioDial.holdSeconds * 1000)) : 0;
+
+                // Needle angle: map 0–360 sensor value to –140°…+140° sweep (like a real dial)
+                const SWEEP = 280; // total degrees of travel
+                const needleAngle = p.radians(-SWEEP / 2 + (val / 360) * SWEEP) - p.HALF_PI;
+
+                // ── Outer bezel ───────────────────────────────────────────────
+                // Dark ring
+                p.noFill();
+                p.stroke(0, 0, 18); p.strokeWeight(r * 0.045);
+                p.ellipse(cx, cy, r * 1.92, r * 1.92);
+                // Amber glow rim — brightens as needle enters zone
+                const rimBri = inZone ? p.lerp(30, 80, holdFrac) : 18;
+                const rimSat = inZone ? 70 : 0;
+                p.stroke(35, rimSat, rimBri, 0.7); p.strokeWeight(r * 0.022);
+                p.ellipse(cx, cy, r * 1.82, r * 1.82);
+
+                // ── Dial face — dark green-black ──────────────────────────────
+                p.noStroke(); p.fill(140, 25, 8);
+                p.ellipse(cx, cy, r * 1.72, r * 1.72);
+
+                // ── Frequency band arcs (coloured rings like original) ─────────
+                // Outer: red shortwave band
+                p.noFill(); p.stroke(0, 80, 70, 0.55); p.strokeWeight(r * 0.028);
+                p.arc(cx, cy, r * 1.55, r * 1.55,
+                    p.radians(125), p.radians(415));
+                // Middle: orange AM band
+                p.stroke(25, 85, 80, 0.55); p.strokeWeight(r * 0.022);
+                p.arc(cx, cy, r * 1.35, r * 1.35,
+                    p.radians(125), p.radians(415));
+                // Inner: teal tuner ring
+                p.stroke(175, 60, 65, 0.50); p.strokeWeight(r * 0.016);
+                p.arc(cx, cy, r * 1.16, r * 1.16,
+                    p.radians(125), p.radians(415));
+
+                // ── Scale tick marks + labels ─────────────────────────────────
+                const NUM_TICKS = 21;
+                p.textFont('sans-serif');
+                for (let i = 0; i <= NUM_TICKS; i++) {
+                    const frac  = i / NUM_TICKS;
+                    const tickAng = p.radians(-140 + frac * 280) - p.HALF_PI;
+                    const isMajor = i % 4 === 0;
+                    const isMed   = i % 2 === 0;
+                    const innerR  = r * (isMajor ? 0.68 : isMed ? 0.72 : 0.76);
+                    const outerR  = r * 0.82;
+                    const lx1 = cx + Math.cos(tickAng) * innerR;
+                    const ly1 = cy + Math.sin(tickAng) * innerR;
+                    const lx2 = cx + Math.cos(tickAng) * outerR;
+                    const ly2 = cy + Math.sin(tickAng) * outerR;
+                    p.stroke(35, 40, 75, isMajor ? 0.9 : 0.5);
+                    p.strokeWeight(isMajor ? r * 0.014 : r * 0.007);
+                    p.line(lx1, ly1, lx2, ly2);
+
+                    // Frequency labels at major ticks
+                    if (isMajor) {
+                        const labelR = r * 0.60;
+                        const lxL = cx + Math.cos(tickAng) * labelR;
+                        const lyL = cy + Math.sin(tickAng) * labelR;
+                        const freqLabels = ['5', '6', '7', '8', '10', '12', '15'];
+                        const labelIdx = Math.round(frac * (freqLabels.length - 1));
+                        p.noStroke(); p.fill(35, 30, 82, 0.8);
+                        p.textAlign(p.CENTER, p.CENTER);
+                        p.textSize(r * 0.095);
+                        p.text(freqLabels[labelIdx] || '', lxL, lyL);
+                    }
+                }
+
+                // ── Target zone arc highlight ─────────────────────────────────
+                const targetAng  = p.radians(-140 + (target / 360) * 280) - p.HALF_PI;
+                const tolAngHalf = p.radians((tol / 360) * 280);
+                p.noFill();
+                const zoneAlpha = inZone ? 0.55 + holdFrac * 0.35 : 0.25;
+                p.stroke(inZone ? 45 : 175, 85, 90, zoneAlpha);
+                p.strokeWeight(r * 0.032);
+                p.arc(cx, cy, r * 1.0, r * 1.0,
+                    targetAng - tolAngHalf, targetAng + tolAngHalf);
+
+                // Target marker pip
+                const tpx = cx + Math.cos(targetAng) * r * 0.86;
+                const tpy = cy + Math.sin(targetAng) * r * 0.86;
+                p.noStroke(); p.fill(inZone ? 45 : 175, 90, 95, 0.9);
+                p.ellipse(tpx, tpy, r * 0.045, r * 0.045);
+
+                // ── Station name label (centre top) ───────────────────────────
+                p.noStroke(); p.fill(35, 50, 90, 0.75);
+                p.textAlign(p.CENTER, p.CENTER);
+                p.textSize(r * 0.09);
+                p.text('De FOREST', cx, cy - r * 0.26);
+                p.textSize(r * 0.065);
+                p.fill(175, 50, 70, 0.6);
+                p.text('CROSLEY', cx, cy - r * 0.15);
+
+                // ── Central tuning eye — glows when in zone ───────────────────
+                const eyeR = r * 0.13;
+                // Outer glow
+                p.noStroke(); p.fill(175, 60, inZone ? 50 : 20, inZone ? 0.4 + holdFrac * 0.4 : 0.15);
+                p.ellipse(cx, cy + r * 0.08, eyeR * 2.2, eyeR * 2.2);
+                // Glass lens
+                p.fill(175, 70, inZone ? 75 : 35, inZone ? 0.8 + holdFrac * 0.15 : 0.45);
+                p.ellipse(cx, cy + r * 0.08, eyeR * 1.5, eyeR * 1.5);
+                // Inner bright spot
+                p.fill(175, 20, 98, inZone ? 0.9 : 0.4);
+                p.ellipse(cx - eyeR * 0.18, cy + r * 0.08 - eyeR * 0.18, eyeR * 0.4, eyeR * 0.4);
+
+                // Hold progress arc around eye
+                if (holdFrac > 0) {
+                    p.noFill(); p.stroke(45, 90, 95, 0.85); p.strokeWeight(r * 0.018);
+                    p.arc(cx, cy + r * 0.08, eyeR * 2.0, eyeR * 2.0,
+                        -p.HALF_PI, -p.HALF_PI + p.TWO_PI * holdFrac);
+                }
+
+                // ── Needle ────────────────────────────────────────────────────
+                const needleLen  = r * 0.82;
+                const needlePivY = cy + r * 0.32; // pivot sits below centre like a real dial
+                const needleTipX = cx + Math.cos(needleAngle) * needleLen;
+                const needleTipY = needlePivY + Math.sin(needleAngle) * needleLen;
+
+                // Shadow
+                p.stroke(0, 0, 0, 0.5); p.strokeWeight(r * 0.016);
+                p.line(cx + 2, needlePivY + 2, needleTipX + 2, needleTipY + 2);
+                // Needle body
+                const needleHue = inZone ? 45 : 0;
+                const needleSat = inZone ? 85 : 0;
+                const needleBri = inZone ? 95 : 88;
+                p.stroke(needleHue, needleSat, needleBri, 0.95); p.strokeWeight(r * 0.012);
+                p.line(cx, needlePivY, needleTipX, needleTipY);
+                // Pivot cap
+                p.noStroke(); p.fill(0, 0, 60); p.ellipse(cx, needlePivY, r * 0.055, r * 0.055);
+                p.fill(0, 0, 88); p.ellipse(cx, needlePivY, r * 0.028, r * 0.028);
+
+                // ── Bottom label: current value ───────────────────────────────
+                p.noStroke(); p.fill(35, 30, 70, 0.6);
+                p.textAlign(p.CENTER, p.CENTER);
+                p.textSize(r * 0.075);
+                p.text(Math.round(val), cx, cy + r * 0.65);
+            };
+
             // text: instruction/label tile — displays configurable text, auto-sized to fit the circle
             const _ls_text = (tile, cx, cy, r) => {
                 const str = tile.text || '';
@@ -3241,7 +3448,8 @@
                         case 'ch_arc_fill': _ls_arc_fill(val, history, chIdx, nCh, cx, cy, r); break;
                         case 'ch_foldball': _ls_foldball(val, history, chIdx, nCh, cx, cy, r); break;
                         case 'countdown':   _ls_countdown(cx, cy, r);                          break;
-                        case 'ws_sigil':    _ls_ws_sigil(cx, cy, r);                           break;
+                        case 'ws_sigil':      _ls_ws_sigil(cx, cy, r);                           break;
+                        case 'ws_radio_dial': _ls_ws_radio_dial(cx, cy, r);                      break;
                         case 'text':        _ls_text(tile, cx, cy, r);                         break;
                     }
                 } catch(e) { console.warn('liveScene panel error:', tile.type, e); }
@@ -6392,6 +6600,23 @@
             TRIGGER_THRESHOLD = Math.max(0, parseInt(event.target.value, 10) || 0);
             triggerThresholdInput.value = TRIGGER_THRESHOLD;
             saveSettings();
+        });
+
+        radioDialSensorInput.addEventListener('change', () => {
+            radioDial.sensorIndex = Math.max(0, parseInt(radioDialSensorInput.value, 10) || 0);
+            _radioDialHoldStart = null; saveSettings();
+        });
+        radioDialTargetInput.addEventListener('change', () => {
+            radioDial.targetPos = Math.max(0, Math.min(360, parseInt(radioDialTargetInput.value, 10) || 0));
+            _radioDialHoldStart = null; saveSettings();
+        });
+        radioDialToleranceInput.addEventListener('change', () => {
+            radioDial.tolerance = Math.max(1, parseInt(radioDialToleranceInput.value, 10) || 20);
+            _radioDialHoldStart = null; saveSettings();
+        });
+        radioDialHoldInput.addEventListener('change', () => {
+            radioDial.holdSeconds = Math.max(1, parseInt(radioDialHoldInput.value, 10) || 3);
+            _radioDialHoldStart = null; saveSettings();
         });
 
         autoSceneChangeCheckbox.addEventListener('change', (event) => {
