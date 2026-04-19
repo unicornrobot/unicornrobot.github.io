@@ -4892,6 +4892,8 @@
                                 p._glitchPanels.set(hit.id, { startMs: performance.now() });
                                 p.loop();
                                 p.playGlitchSound();
+                            } else {
+                                p.redraw();
                             }
                             if (hideGlitchCursor) p.canvas.style.cursor = 'none';
                             return;
