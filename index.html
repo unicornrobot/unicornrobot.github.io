@@ -4844,122 +4844,61 @@
             p._glitchPanels = new Map();
             const GLITCH_DURATION_MS = 800; // milliseconds — framerate-independent
 
-            // Apply CRT glitch overlay to a screen region using raw pixel manipulation
-            // Offscreen canvas reused across frames for glitch compositing
-            let _glitchOffscreen = null;
+            // Apply glitch overlay using drawImage slice-shifts — no pixel reads, GPU only
             const _applyGlitch = (bx, by, bw, bh, progress) => {
-                // progress: 0=just started, 1=end
                 bx = Math.round(bx); by = Math.round(by);
                 bw = Math.round(bw); bh = Math.round(bh);
                 if (bw < 2 || bh < 2) return;
-                // Clamp to canvas
-                const cx0 = Math.max(0, bx), cy0 = Math.max(0, by);
-                const cx1 = Math.min(p.width, bx + bw), cy1 = Math.min(p.height, by + bh);
-                if (cx1 <= cx0 || cy1 <= cy0) return;
 
-                const rw = cx1 - cx0, rh = cy1 - cy0;
-                const ctx = p.drawingContext;
-
-                // Ensure offscreen buffer is large enough
-                if (!_glitchOffscreen || _glitchOffscreen.width < rw || _glitchOffscreen.height < rh) {
-                    _glitchOffscreen = document.createElement('canvas');
-                    _glitchOffscreen.width  = rw;
-                    _glitchOffscreen.height = rh;
-                }
-                const octx = _glitchOffscreen.getContext('2d');
-
-                // Read pixels from main canvas into offscreen buffer
-                let imgd;
-                try { imgd = ctx.getImageData(cx0, cy0, rw, rh); }
-                catch(e) { return; }
-                const d = imgd.data;
-                const offImgd = octx.createImageData(rw, rh);
-
-                // Intensity pulses — strong at start/end, with random spikes
                 const pulse = Math.min(1, ((1 - progress) * 0.7 + Math.random() * 0.3) * glitchIntensity);
+                if (pulse < 0.01) return;
+
+                const ctx = p.drawingContext;
+                const cnvEl = p.canvas;
                 const rng = (lo, hi) => lo + Math.random() * (hi - lo);
 
-                // Number of scan-tear bands this frame
-                const nBands = glitchLines ? Math.floor(pulse * 8) + 2 : 0;
-
-                // Build per-row horizontal shift map
-                const shifts = new Int16Array(rh);
-                for (let b = 0; b < nBands; b++) {
-                    const bandY  = Math.floor(Math.random() * rh);
-                    const bandH  = Math.floor(rng(2, rh * 0.18)) + 1;
-                    const shift  = Math.floor(rng(-rw * 0.25, rw * 0.25));
-                    for (let y = bandY; y < Math.min(rh, bandY + bandH); y++) {
-                        shifts[y] = shift;
-                    }
-                }
-
-                // Build a scratch copy for horizontal shift reads
-                const src = d; // read from original captured pixels
-                const od  = offImgd.data; // write glitched result here
-
-                const chromaShift = Math.floor(pulse * rw * 0.04) + 1;
-
-                for (let y = 0; y < rh; y++) {
-                    const sh = shifts[y];
-                    const flashRow = Math.random() < pulse * 0.06; // rare bright scan flash
-
-                    for (let x = 0; x < rw; x++) {
-                        const dst = (y * rw + x) * 4;
-
-                        if (glitchLines && flashRow) {
-                            od[dst] = od[dst+1] = od[dst+2] = 220 + (Math.random()*35)|0;
-                            od[dst+3] = 255;
-                            continue;
-                        }
-
-                        // Source x with band shift (only when lines enabled)
-                        const sx = glitchLines ? Math.max(0, Math.min(rw - 1, x + sh)) : x;
-
-                        // Chromatic-aberration reads: R shifted +chroma, B shifted -chroma
-                        const rx  = glitchChromatic ? Math.max(0, Math.min(rw - 1, sx + chromaShift)) : sx;
-                        const bx2 = glitchChromatic ? Math.max(0, Math.min(rw - 1, sx - chromaShift)) : sx;
-
-                        const si  = (y * rw + sx)  * 4;
-                        const ri  = (y * rw + rx)   * 4;
-                        const bi2 = (y * rw + bx2)  * 4;
-
-                        od[dst]   = src[ri];    // R from right-shifted source
-                        od[dst+1] = src[si+1];  // G from centre
-                        od[dst+2] = src[bi2+2]; // B from left-shifted source
-                        od[dst+3] = 255;
-
-                        // Random noise pixels
-                        if (glitchStatic && Math.random() < pulse * 0.04) {
-                            const v = (Math.random() * 255)|0;
-                            od[dst] = od[dst+1] = od[dst+2] = v;
-                        }
-                    }
-                }
-
-                // Occasional full-width dark dropout band
-                if (glitchStatic && Math.random() < pulse * 0.35) {
-                    const dropY = Math.floor(Math.random() * rh);
-                    const dropH = Math.floor(rng(1, 4));
-                    for (let y = dropY; y < Math.min(rh, dropY + dropH); y++) {
-                        for (let x = 0; x < rw; x++) {
-                            const i = (y * rw + x) * 4;
-                            od[i] = od[i+1] = od[i+2] = (Math.random() * 30)|0;
-                            od[i+3] = 255;
-                        }
-                    }
-                }
-
-                // Write glitched pixels to offscreen buffer
-                octx.putImageData(offImgd, 0, 0);
-
-                // Composite onto main canvas clipped to an inscribed circle
-                const cr = Math.min(rw, rh) / 2 * 1.18; // circle radius — slightly larger than inscribed
-                const ccx = cx0 + rw / 2, ccy = cy0 + rh / 2;
                 ctx.save();
                 ctx.beginPath();
-                ctx.arc(ccx, ccy, cr, 0, Math.PI * 2);
+                ctx.rect(bx, by, bw, bh);
                 ctx.clip();
-                ctx.drawImage(_glitchOffscreen, 0, 0, rw, rh, cx0, cy0, rw, rh);
+
+                // Horizontal slice tears — drawImage sub-regions shifted sideways
+                if (glitchLines) {
+                    const nSlices = Math.floor(pulse * 6) + 1;
+                    for (let s = 0; s < nSlices; s++) {
+                        const sy   = by + Math.floor(Math.random() * bh);
+                        const sh   = Math.max(1, Math.floor(rng(2, bh * 0.15)));
+                        const shft = Math.floor(rng(-bw * 0.18, bw * 0.18));
+                        ctx.drawImage(cnvEl, bx, sy, bw, sh, bx + shft, sy, bw, sh);
+                    }
+                }
+
+                // Chromatic fringe — draw panel twice with R/B channel offset using globalCompositeOperation
+                if (glitchChromatic) {
+                    const fringe = Math.floor(pulse * bw * 0.03) + 1;
+                    ctx.globalCompositeOperation = 'screen';
+                    ctx.globalAlpha = 0.35 * pulse;
+                    ctx.drawImage(cnvEl, bx, by, bw, bh, bx + fringe, by, bw, bh); // red ghost right
+                    ctx.drawImage(cnvEl, bx, by, bw, bh, bx - fringe, by, bw, bh); // blue ghost left
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.globalAlpha = 1;
+                }
+
+                // Scan-line flash bands
+                if (glitchLines && Math.random() < pulse * 0.4) {
+                    const fy = by + Math.floor(Math.random() * bh);
+                    const fh = Math.max(1, Math.floor(rng(1, 3)));
+                    ctx.fillStyle = `rgba(255,255,255,${0.5 * pulse})`;
+                    ctx.fillRect(bx, fy, bw, fh);
+                }
+
+                // Dark dropout band
+                if (glitchStatic && Math.random() < pulse * 0.3) {
+                    const dy = by + Math.floor(Math.random() * bh);
+                    ctx.fillStyle = `rgba(0,0,0,${0.7 + Math.random() * 0.3})`;
+                    ctx.fillRect(bx, dy, bw, Math.max(1, Math.floor(rng(1, 4))));
+                }
+
                 ctx.restore();
             };
 
