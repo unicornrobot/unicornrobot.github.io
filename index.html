@@ -4036,29 +4036,91 @@
                         p.noLoop();
                     }
 
+                    // Per-tile offscreen cache: only re-render when dirty
+                    if (!p._tileCache) p._tileCache = new Map();
+                    if (!p._tileCacheDirty) p._tileCacheDirty = true; // render on first frame
+
+                    // Helper: get or create an offscreen canvas for a tile at given size
+                    const _getTileCanvas = (id, w, h) => {
+                        let tc = p._tileCache.get(id);
+                        if (!tc || tc.width !== w || tc.height !== h) {
+                            tc = document.createElement('canvas');
+                            tc.width = w; tc.height = h;
+                            p._tileCache.set(id, tc);
+                            p._tileCacheDirty = true;
+                        }
+                        return tc;
+                    };
+
+                    const _renderTileToCache = (tile, bx, by, bw, bh) => {
+                        if (tile.type === 'viewer' || tile.type === 'empty') return;
+                        const tc = _getTileCanvas(tile.id, bw, bh);
+                        if (!p._tileCacheDirty) return;
+                        // Render into main canvas at position, then copy to offscreen
+                        if (panelBg !== false) { p.noStroke(); p.fill(0, 0, 11); p.rect(bx, by, bw, bh, 4); }
+                        p.drawingContext.save();
+                        p.drawingContext.beginPath();
+                        p.drawingContext.rect(bx, by, bw, bh);
+                        p.drawingContext.clip();
+                        try { dashPanelRender(tile.type, data, avgs, nCh, bx, by, bw, bh); }
+                        catch(e) { console.warn('Dashboard tile error:', tile.type, e); }
+                        finally { p.blendMode(p.BLEND); p.colorMode(p.HSB,360,100,100,1.0); p.angleMode(p.RADIANS); }
+                        p.drawingContext.restore();
+                        // Copy rendered region to offscreen cache
+                        tc.getContext('2d').drawImage(p.canvas, bx, by, bw, bh, 0, 0, bw, bh);
+                    };
+
+                    const _blitTile = (tile, bx, by, bw, bh) => {
+                        if (tile.type === 'viewer') {
+                            // Find source tile cache
+                            const srcType = p._dashViewerSource;
+                            if (srcType) {
+                                const srcTile = tiles.find(t => t.type === srcType && t.type !== 'viewer');
+                                if (srcTile) {
+                                    const sc = p._tileCache.get(srcTile.id);
+                                    if (sc) {
+                                        if (panelBg !== false) { p.noStroke(); p.fill(0,0,11); p.rect(bx,by,bw,bh,4); }
+                                        p.drawingContext.save();
+                                        p.drawingContext.beginPath();
+                                        p.drawingContext.rect(bx, by, bw, bh);
+                                        p.drawingContext.clip();
+                                        p.drawingContext.drawImage(sc, 0, 0, sc.width, sc.height, bx, by, bw, bh);
+                                        p.drawingContext.restore();
+                                        return;
+                                    }
+                                }
+                            }
+                            // Placeholder
+                            if (panelBg !== false) { p.noStroke(); p.fill(0,0,11); p.rect(bx,by,bw,bh,4); }
+                            p.noFill(); p.stroke(0,0,35); p.strokeWeight(1);
+                            p.line(bx,by,bx+bw,by+bh); p.line(bx+bw,by,bx,by+bh);
+                            p.fill(0,0,45); p.noStroke(); p.textAlign(p.CENTER,p.CENTER); p.textSize(11);
+                            p.text('click a panel', bx+bw/2, by+bh/2);
+                            return;
+                        }
+                        if (tile.type === 'empty') return;
+                        const tc = p._tileCache.get(tile.id);
+                        if (tc) {
+                            if (panelBg !== false) { p.noStroke(); p.fill(0,0,11); p.rect(bx,by,bw,bh,4); }
+                            p.drawingContext.drawImage(tc, 0, 0, tc.width, tc.height, bx, by, bw, bh);
+                        }
+                    };
+
                     if (mode === 'free') {
-                        // ── Free placement mode ──────────────────────────────────────────
+                        // ── Free placement mode — render to cache ────────────────────────
                         for (let ti = 0; ti < tiles.length; ti++) {
                             const tile = tiles[ti];
-                            const bx = tile.fx * W;
-                            const by = tile.fy * H;
-                            const bsize = tile.fsize * Math.min(W, H);
-                            if (panelBg !== false) { p.noStroke(); p.fill(0, 0, 11); p.rect(bx, by, bsize, bsize, 4); }
+                            const bx = tile.fx * W, by = tile.fy * H;
+                            const bsize = Math.round(tile.fsize * Math.min(W, H));
+                            _renderTileToCache(tile, bx, by, bsize, bsize);
+                        }
+                        p._tileCacheDirty = false;
 
-                            p.drawingContext.save();
-                            p.drawingContext.beginPath();
-                            p.drawingContext.rect(bx, by, bsize, bsize);
-                            p.drawingContext.clip();
-
-                            try { dashPanelRender(tile.type, data, avgs, nCh, bx, by, bsize, bsize); }
-                            catch(e) { console.warn('Dashboard tile error:', tile.type, e); }
-                            finally {
-                                p.blendMode(p.BLEND);
-                                p.colorMode(p.HSB, 360, 100, 100, 1.0);
-                                p.angleMode(p.RADIANS);
-                            }
-
-                            p.drawingContext.restore();
+                        for (let ti = 0; ti < tiles.length; ti++) {
+                            const tile = tiles[ti];
+                            const bx = tile.fx * W, by = tile.fy * H;
+                            const bsize = Math.round(tile.fsize * Math.min(W, H));
+                            _blitTile(tile, bx, by, bsize, bsize);
 
                             // Glitch overlay
                             const _gfree = p._glitchPanels.get(tile.id);
@@ -4108,24 +4170,20 @@
                             if (tile.col >= cols || tile.row >= rows) continue;
                             const bx = gap + tile.col * (cellW + gap);
                             const by = gap + tile.row * (cellH + gap);
-                            const bw = tile.colSpan * cellW + (tile.colSpan - 1) * gap;
-                            const bh = tile.rowSpan * cellH + (tile.rowSpan - 1) * gap;
-                            if (panelBg !== false) { p.noStroke(); p.fill(0, 0, 11); p.rect(bx, by, bw, bh, 4); }
+                            const bw = Math.round(tile.colSpan * cellW + (tile.colSpan - 1) * gap);
+                            const bh = Math.round(tile.rowSpan * cellH + (tile.rowSpan - 1) * gap);
+                            _renderTileToCache(tile, bx, by, bw, bh);
+                        }
+                        p._tileCacheDirty = false;
 
-                            p.drawingContext.save();
-                            p.drawingContext.beginPath();
-                            p.drawingContext.rect(bx, by, bw, bh);
-                            p.drawingContext.clip();
-
-                            try { dashPanelRender(tile.type, data, avgs, nCh, bx, by, bw, bh); }
-                            catch(e) { console.warn('Dashboard tile error:', tile.type, e); }
-                            finally {
-                                p.blendMode(p.BLEND);
-                                p.colorMode(p.HSB, 360, 100, 100, 1.0);
-                                p.angleMode(p.RADIANS);
-                            }
-
-                            p.drawingContext.restore();
+                        for (let ti = 0; ti < tiles.length; ti++) {
+                            const tile = tiles[ti];
+                            if (tile.col >= cols || tile.row >= rows) continue;
+                            const bx = gap + tile.col * (cellW + gap);
+                            const by = gap + tile.row * (cellH + gap);
+                            const bw = Math.round(tile.colSpan * cellW + (tile.colSpan - 1) * gap);
+                            const bh = Math.round(tile.rowSpan * cellH + (tile.rowSpan - 1) * gap);
+                            _blitTile(tile, bx, by, bw, bh);
 
                             // Glitch overlay
                             const _ggrid = p._glitchPanels.get(tile.id);
@@ -4808,6 +4866,7 @@
                             }
                             if (hitTile && hitTile.type !== 'empty') {
                                 p._dashViewerSource = hitTile.type;
+                                p._tileCacheDirty = true; // viewer needs to repaint from new source
                             }
                             p._glitchPanels.set(hit.id, { startMs: performance.now() });
                             p.loop();
@@ -6771,6 +6830,7 @@
 
         vizSelect.addEventListener('change', (event) => {
             currentVisualization = event.target.value;
+            if (p5Instance) p5Instance._tileCacheDirty = true; // force re-render on viz switch
             if (p5Instance && collectedData.length > 0 && !isCollecting) {
                 p5Instance.redraw(); // Redraw with the new visualization if data exists and not collecting
             } else if (p5Instance && !isCollecting) {
@@ -7209,6 +7269,7 @@
                  }));
                  list.querySelectorAll('.dt-type').forEach(el => el.addEventListener('change', e => {
                      dashboardLayout.tiles[+e.target.dataset.idx].type = e.target.value;
+                     if (p5Instance) p5Instance._tileCacheDirty = true;
                      saveSettings(); if (p5Instance) p5Instance.redraw();
                  }));
                  list.querySelectorAll('.dt-del').forEach(el => el.addEventListener('click', e => {
@@ -7234,6 +7295,7 @@
 
                  list.querySelectorAll('.dft-type').forEach(el => el.addEventListener('change', e => {
                      dashboardLayout.tiles[+e.target.dataset.idx].type = e.target.value;
+                     if (p5Instance) p5Instance._tileCacheDirty = true;
                      saveSettings(); if (p5Instance) p5Instance.redraw();
                  }));
                  list.querySelectorAll('.dft-del').forEach(el => el.addEventListener('click', e => {
