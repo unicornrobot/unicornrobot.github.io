@@ -500,6 +500,10 @@
                             </div>
                             <div style="font-size:10px;color:#555;margin-top:4px;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.08em;">Glitch Effects</div>
                             <div style="display:flex; align-items:center; gap:6px;">
+                                <input type="checkbox" id="glitchEnabledCheckbox" checked>
+                                <label for="glitchEnabledCheckbox" style="font-size:11px;">Enable animation</label>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px;">
                                 <input type="checkbox" id="glitchLinesCheckbox" checked>
                                 <label for="glitchLinesCheckbox" style="font-size:11px;">Scan lines</label>
                             </div>
@@ -714,6 +718,7 @@
         // --- Installation Mode ---
         let isInstallationMode = false;
         let hideGlitchCursor = false;   // Hide cursor when panel glitch is triggered
+        let glitchEnabled   = true;      // Whether panel glitch animation runs at all
         let glitchLines     = true;      // Scan-tear bands
         let glitchStatic    = true;      // Random noise + dropout bands
         let glitchChromatic = true;      // Chromatic aberration
@@ -1080,6 +1085,7 @@
         const hideGlitchCursorCheckbox      = document.getElementById('hideGlitchCursorCheckbox');
         const allowClickFullscreenCheckbox  = document.getElementById('allowClickFullscreenCheckbox');
         const autoPrintResultCheckbox       = document.getElementById('autoPrintResultCheckbox');
+        const glitchEnabledCheckbox         = document.getElementById('glitchEnabledCheckbox');
         const glitchLinesCheckbox           = document.getElementById('glitchLinesCheckbox');
         const glitchStaticCheckbox          = document.getElementById('glitchStaticCheckbox');
         const glitchChromaticCheckbox       = document.getElementById('glitchChromaticCheckbox');
@@ -1285,6 +1291,7 @@
                 debugMode: debugModeCheckbox.checked,
                 installationMode: installationModeCheckbox.checked,
                 hideGlitchCursor: hideGlitchCursorCheckbox.checked,
+                glitchEnabled:    glitchEnabledCheckbox.checked,
                 glitchLines:      glitchLinesCheckbox.checked,
                 glitchStatic:     glitchStaticCheckbox.checked,
                 glitchChromatic:  glitchChromaticCheckbox.checked,
@@ -1348,6 +1355,8 @@
                     installationModeCheckbox.checked = settings.installationMode || false;
                     hideGlitchCursorCheckbox.checked = settings.hideGlitchCursor || false;
                     hideGlitchCursor = hideGlitchCursorCheckbox.checked;
+                    glitchEnabledCheckbox.checked   = settings.glitchEnabled   !== false;
+                    glitchEnabled = glitchEnabledCheckbox.checked;
                     glitchLinesCheckbox.checked     = settings.glitchLines     !== false;
                     glitchStaticCheckbox.checked    = settings.glitchStatic    !== false;
                     glitchChromaticCheckbox.checked = settings.glitchChromatic !== false;
@@ -4809,6 +4818,14 @@
                     overlayCurrentY = -1; // Ensure it's reset if not starting in overlay mode
                 }
 
+                // Hide cursor over canvas when hideGlitchCursor is on; restore over sidebar
+                p.canvas.addEventListener('mouseenter', () => {
+                    if (hideGlitchCursor) p.canvas.style.cursor = 'none';
+                });
+                p.canvas.addEventListener('mouseleave', () => {
+                    if (hideGlitchCursor) p.canvas.style.cursor = '';
+                });
+
                 // --- Add Fullscreen Toggle on Click ---
                 cnv.mouseClicked(async () => {
                     // Suppress fullscreen toggle when any edit mode is active
@@ -4869,11 +4886,13 @@
                             }
                             if (hitTile && hitTile.type !== 'empty') {
                                 p._dashViewerSource = hitTile.type;
-                                p._tileCacheDirty = true; // viewer needs to repaint from new source
+                                p._tileCacheDirty = true;
                             }
-                            p._glitchPanels.set(hit.id, { startMs: performance.now() });
-                            p.loop();
-                            p.playGlitchSound();
+                            if (glitchEnabled) {
+                                p._glitchPanels.set(hit.id, { startMs: performance.now() });
+                                p.loop();
+                                p.playGlitchSound();
+                            }
                             if (hideGlitchCursor) p.canvas.style.cursor = 'none';
                             return;
                         }
@@ -7068,6 +7087,9 @@
             saveSettings();
         });
 
+        glitchEnabledCheckbox.addEventListener('change', (e) => {
+            glitchEnabled = e.target.checked; saveSettings();
+        });
         glitchLinesCheckbox.addEventListener('change', (e) => {
             glitchLines = e.target.checked; saveSettings();
         });
