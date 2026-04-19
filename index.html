@@ -4857,7 +4857,12 @@
                                 p.loop();
                                 p.playGlitchSound();
                                 if (hideGlitchCursor) p.canvas.style.cursor = 'none';
-                                setTimeout(() => startWatching(), 400);
+                                setTimeout(() => {
+                                    isWatching = true;
+                                    collectedData = [];
+                                    isCollecting = false;
+                                    if (p5Instance) p5Instance.loop();
+                                }, 400);
                                 return;
                             }
                             if (hitTile && hitTile.type !== 'empty') {
