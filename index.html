@@ -4852,17 +4852,19 @@
                         if (hit) {
                             const hitTile = dashboardLayout.tiles.find(t => t.id === hit.id);
                             if (hitTile && hitTile.type === 'viewer') {
-                                // Clicking the viewer returns to waiting screen
-                                p._glitchPanels.set(hit.id, { startMs: performance.now() });
-                                p.loop();
-                                p.playGlitchSound();
-                                if (hideGlitchCursor) p.canvas.style.cursor = 'none';
+                                // Fade whole screen to black then go to waiting scene
+                                const _fade = document.createElement('div');
+                                _fade.style.cssText = 'position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity 0.6s ease;z-index:9999;';
+                                document.body.appendChild(_fade);
+                                requestAnimationFrame(() => { _fade.style.opacity = '1'; });
                                 setTimeout(() => {
                                     isWatching = true;
                                     collectedData = [];
                                     isCollecting = false;
                                     if (p5Instance) p5Instance.loop();
-                                }, 400);
+                                    _fade.style.opacity = '0';
+                                    setTimeout(() => _fade.remove(), 650);
+                                }, 650);
                                 return;
                             }
                             if (hitTile && hitTile.type !== 'empty') {
