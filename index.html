@@ -6673,37 +6673,43 @@
 
                     // ── Processing indicator ──────────────────────────────────────
                     if (isProcessing) {
-                        isProcessing = false; // next frame will render the actual viz
+                        isProcessing = false;
                         p.colorMode(p.HSB, 360, 100, 100, 1);
                         p.background(0, 0, 6);
                         const W2 = p.width, H2 = p.height;
                         const cx2 = W2 / 2, cy2 = H2 / 2;
-                        const t2 = (p.frameCount % 60) / 60;
+                        const sz = Math.min(W2, H2) * 0.055;
 
-                        // Spinning arc
-                        const arcR = Math.min(W2, H2) * 0.04;
-                        p.noFill();
-                        p.stroke(0, 0, 22);
-                        p.strokeWeight(arcR * 0.18);
-                        p.ellipse(cx2, cy2, arcR * 2, arcR * 2);
-                        p.stroke(200, 40, 88);
-                        p.arc(cx2, cy2, arcR * 2, arcR * 2,
-                            t2 * p.TWO_PI - p.HALF_PI,
-                            t2 * p.TWO_PI - p.HALF_PI + p.TWO_PI * 0.28);
+                        // Hourglass icon drawn with lines/triangles
+                        const hx = cx2, hy = cy2;
+                        p.noFill(); p.stroke(0, 0, 65); p.strokeWeight(sz * 0.07);
+                        // Outer frame — top and bottom bars
+                        p.line(hx - sz * 0.55, hy - sz, hx + sz * 0.55, hy - sz);
+                        p.line(hx - sz * 0.55, hy + sz, hx + sz * 0.55, hy + sz);
+                        // Two triangles meeting at centre
+                        p.fill(0, 0, 50); p.noStroke();
+                        p.triangle(
+                            hx - sz * 0.55, hy - sz,
+                            hx + sz * 0.55, hy - sz,
+                            hx, hy
+                        );
+                        p.fill(0, 0, 28);
+                        p.triangle(
+                            hx - sz * 0.55, hy + sz,
+                            hx + sz * 0.55, hy + sz,
+                            hx, hy
+                        );
+                        // Small sand dot at centre
+                        p.fill(0, 0, 72); p.noStroke();
+                        p.ellipse(hx, hy, sz * 0.18, sz * 0.18);
 
                         // Label
-                        p.noStroke();
-                        p.fill(0, 0, 72);
+                        p.noStroke(); p.fill(0, 0, 60);
                         p.textAlign(p.CENTER, p.CENTER);
                         p.textFont('sans-serif');
-                        p.textSize(Math.max(11, Math.min(W2, H2) * 0.022));
-                        p.text('Processing…', cx2, cy2 + arcR * 1.9);
-
-                        // Data-point count
-                        p.fill(0, 0, 42);
-                        p.textSize(Math.max(9, Math.min(W2, H2) * 0.015));
-                        p.text(`${collectedData.length} samples`, cx2, cy2 + arcR * 2.8);
-                        return; // don't run the viz this frame
+                        p.textSize(Math.max(11, Math.min(W2, H2) * 0.02));
+                        p.text('Processing…', cx2, cy2 + sz * 1.6);
+                        return;
                     }
 
                     p.background(255); // Clear background for final visualization
