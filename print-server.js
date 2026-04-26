@@ -26,8 +26,13 @@ const CMD = {
 
 function buildPrintBuffer(lines, cut) {
     const parts = [CMD.reset, CMD.alignCtr];
+    // Find last non-empty line index — that's the header (printout is reversed)
+    let headerIdx = -1;
+    for (let i = lines.length - 1; i >= 0; i--) {
+        if (lines[i] && lines[i].trim().length > 0) { headerIdx = i; break; }
+    }
     lines.forEach((line, i) => {
-        if (i === 0) {
+        if (i === headerIdx) {
             parts.push(CMD.bold, CMD.dblSize);
             parts.push(Buffer.from(line + '\n', 'utf8'));
             parts.push(CMD.boldOff, CMD.normalSize);

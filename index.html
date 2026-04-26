@@ -224,7 +224,7 @@
 <div id="appShell">
 
     <!-- ── Sidebar ── -->
-    <div id="sidebar">
+    <div id="sidebar" class="collapsed">
         <div id="sidebarInner">
 
             <div style="font-size:15px; font-weight:700; color:#888; letter-spacing:0.05em; padding-bottom:8px; border-bottom:1px solid #222;">
@@ -643,7 +643,7 @@
     </div><!-- /sidebar -->
 
     <!-- ── Sidebar toggle tab ── -->
-    <div id="sidebarToggle" title="Toggle panel">&#x25C4;</div>
+    <div id="sidebarToggle" class="collapsed" title="Toggle panel">&#x25BA;</div>
 
     <!-- ── Canvas area ── -->
     <div id="canvasArea">
@@ -7001,7 +7001,7 @@
                 const resp = await fetch(`${baseUrl}/print`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ lines, cut: true }),
+                    body: JSON.stringify({ lines: [...lines].reverse(), cut: true }),
                 });
                 if (!resp.ok) throw new Error(`Server ${resp.status}`);
                 printStatus.textContent = 'Printed.';
