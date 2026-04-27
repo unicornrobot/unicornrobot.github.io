@@ -122,13 +122,13 @@
     "PM2_HOME": "/home/simon/.pm2",
     "unique_id": "43d946d4-f12d-4501-acca-d36510c3a0f8",
     "status": "online",
-    "pm_uptime": 1777305564918,
+    "pm_uptime": 1777306254402,
     "axm_actions": [],
     "axm_monitor": {},
     "axm_options": {},
     "axm_dynamic": {},
     "created_at": 1776522309229,
-    "restart_time": 2077,
+    "restart_time": 3581,
     "unstable_restarts": 0,
     "node_version": "20.20.2",
     "exit_code": 1
@@ -288,31 +288,31 @@
     ],
     "axm_monitor": {
       "Used Heap Size": {
-        "value": "8.96",
+        "value": "9.03",
         "type": "internal/v8/heap/used",
         "unit": "MiB",
         "historic": true
       },
       "Heap Usage": {
-        "value": 90.94,
+        "value": 87.23,
         "type": "internal/v8/heap/usage",
         "unit": "%",
         "historic": true
       },
       "Heap Size": {
-        "value": "9.86",
+        "value": "10.36",
         "type": "internal/v8/heap/total",
         "unit": "MiB",
         "historic": true
       },
       "Event Loop Latency p95": {
-        "value": "3.61",
+        "value": "3.11",
         "type": "internal/libuv/latency/p95",
         "unit": "ms",
         "historic": true
       },
       "Event Loop Latency": {
-        "value": "0.59",
+        "value": "0.43",
         "type": "internal/libuv/latency/p50",
         "unit": "ms",
         "historic": true
