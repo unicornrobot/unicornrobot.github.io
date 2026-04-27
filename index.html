@@ -6941,29 +6941,29 @@
 
                 const ELEMENT_NAMES = ['EARTH','WATER','FIRE','AIR','AETHER','SHADOW','RADIANCE','VOID'];
                 const FORTUNES = [
-                    ["roots seek deeper soil . rest before you reach",
-                     "steady ground holds you . quiet growth unfolds",
-                     "you are anchored . from this foundation all things rise"],
-                    ["still waters within . hold what you feel",
-                     "your current moves unseen . trust its pull",
-                     "the tide is full . let your intuition carry you"],
+                    ["roots seek deeper soil - rest before you reach",
+                     "steady ground holds you - quiet growth unfolds",
+                     "you are anchored - from this foundation all things rise"],
+                    ["still waters within - hold what you feel",
+                     "your current moves unseen - trust its pull",
+                     "the tide is full - let your intuition carry you"],
                     ["embers await the breath that will rouse them",
-                     "a steady flame burns . enough to light the way",
-                     "you burn with purpose . transformation follows"],
-                    ["thoughts gather like clouds . clarity will come",
-                     "you move through ideas with ease . keep speaking",
-                     "your mind is sharp . ideas arrive before you seek them"],
-                    ["the veil is thick today . patience thins it",
-                     "unseen currents reach you . you are not alone",
-                     "you touch the larger pattern . no accident"],
-                    ["what is hidden rests . honour what you cannot see",
-                     "something stirs beneath . name it gently",
-                     "what was concealed seeks light . do not look away"],
-                    ["your light turns inward . it will return",
-                     "you emit warmth . others are drawn to what you make",
-                     "you shine without effort . creativity seeks its outlet"],
-                    ["you are full . find the hollow for something new",
-                     "space within holds possibility . do not fill it yet",
+                     "a steady flame burns - enough to light the way",
+                     "you burn with purpose - transformation follows"],
+                    ["thoughts gather like clouds - clarity will come",
+                     "you move through ideas with ease - keep speaking",
+                     "your mind is sharp - ideas arrive before you seek them"],
+                    ["the veil is thick today - patience thins it",
+                     "unseen currents reach you - you are not alone",
+                     "you touch the larger pattern - no accident"],
+                    ["what is hidden rests - honour what you cannot see",
+                     "something stirs beneath - name it gently",
+                     "what was concealed seeks light - do not look away"],
+                    ["your light turns inward - it will return",
+                     "you emit warmth - others are drawn to what you make",
+                     "you shine without effort -. creativity seeks its outlet"],
+                    ["you are full - find the hollow for something new",
+                     "space within holds possibility - do not fill it yet",
                      "the vast quiet within is your greatest gift"],
                 ];
 
@@ -6975,9 +6975,10 @@
                 const _elements = ELEMENT_NAMES.slice(0, Math.min(8, avgs.length));
                 const _maxIdx = avgs.indexOf(Math.max(...avgs.slice(0, _elements.length)));
                 const _minIdx = avgs.indexOf(Math.min(...avgs.slice(0, _elements.length)));
-                const avgLine = _elements.map((n, i) => `${n[0]}${n[1]}:${avgs[i]}`).join(' ');
-                const peakLine = `Highest: ${_elements[_maxIdx]} (${avgs[_maxIdx]})`;
-                const lowLine  = `Lowest:  ${_elements[_minIdx]} (${avgs[_minIdx]})`;
+                // const avgLine = _elements.map((n, i) => `${n[0]}${n[1]}:${avgs[i]}`).join(' ');
+                const _pct = v => `${Math.round((v / 360) * 100)}%`;
+                const peakLine = `Highest: ${_elements[_maxIdx]} (${_pct(avgs[_maxIdx])})`;
+                const lowLine  = `Lowest:  ${_elements[_minIdx]} (${_pct(avgs[_minIdx])})`;
 
                 // ── Build composite receipt PNG (384px = X6 native width) ──
                 const W = 384;
@@ -7011,7 +7012,7 @@
                 const items = [
                     { text: ts,       font: bodyFont },
                     { text: '',       font: bodyFont },
-                    { text: avgLine,  font: bodyFont },
+                    // { text: avgLine,  font: bodyFont },
                     { text: peakLine, font: bodyFont },
                     { text: lowLine,  font: bodyFont },
                     { text: '',       font: bodyFont },
