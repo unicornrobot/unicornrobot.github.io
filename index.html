@@ -6972,12 +6972,6 @@
                     .replace(/[\u201C\u201D]/g, '"')
                     .replace(/[\u2013\u2014]/g, '-')
                     .replace(/[^\x00-\x7F]/g, '?');
-                const fortuneLines = [];
-                for (let i = 0; i < Math.min(8, avgs.length); i++) {
-                    const band = avgs[i] < 120 ? 0 : avgs[i] < 240 ? 1 : 2;
-                    fortuneLines.push(`${ELEMENT_NAMES[i]}: ${_toAscii(FORTUNES[i][band])}`);
-                }
-
                 const _elements = ELEMENT_NAMES.slice(0, Math.min(8, avgs.length));
                 const _maxIdx = avgs.indexOf(Math.max(...avgs.slice(0, _elements.length)));
                 const _minIdx = avgs.indexOf(Math.min(...avgs.slice(0, _elements.length)));
@@ -6985,21 +6979,52 @@
                 const peakLine = `Highest: ${_elements[_maxIdx]} (${avgs[_maxIdx]})`;
                 const lowLine  = `Lowest:  ${_elements[_minIdx]} (${avgs[_minIdx]})`;
 
-                const lines = [
-                    ts,
-                    '',
-                    avgLine,
-                    peakLine,
-                    lowLine,
-                    '',
-                    ...fortuneLines,
-                ];
-
-                // ── Build composite receipt PNG (384px = X6 native width) ── 384 px
+                // ── Build composite receipt PNG (384px = X6 native width) ──
                 const W = 384;
                 const padX = 8, padTop = 12, padBottom = 12, padBetween = 14;
                 const headerH = 52, lineH = 28;
-                const textH = padTop + headerH + 4 + lines.length * lineH + padBottom;
+                const bodyFont = '20px monospace';
+                const boldFont = 'bold 20px monospace';
+                const maxTextW = W - 2 * padX;
+
+                // Word-wrap helper using a scratch measurement context
+                const _measureCtx = document.createElement('canvas').getContext('2d');
+                const wrapText = (text, font, maxWidth) => {
+                    _measureCtx.font = font;
+                    const words = text.split(/\s+/).filter(Boolean);
+                    const out = [];
+                    let line = '';
+                    for (const w of words) {
+                        const test = line ? line + ' ' + w : w;
+                        if (_measureCtx.measureText(test).width <= maxWidth) {
+                            line = test;
+                        } else {
+                            if (line) out.push(line);
+                            line = w;
+                        }
+                    }
+                    if (line) out.push(line);
+                    return out.length ? out : [''];
+                };
+
+                // Build the flat list of styled lines we'll render
+                const items = [
+                    { text: ts,       font: bodyFont },
+                    { text: '',       font: bodyFont },
+                    { text: avgLine,  font: bodyFont },
+                    { text: peakLine, font: bodyFont },
+                    { text: lowLine,  font: bodyFont },
+                    { text: '',       font: bodyFont },
+                ];
+                for (let i = 0; i < Math.min(8, avgs.length); i++) {
+                    const band = avgs[i] < 120 ? 0 : avgs[i] < 240 ? 1 : 2;
+                    items.push({ text: ELEMENT_NAMES[i], font: boldFont });
+                    const wrapped = wrapText(_toAscii(FORTUNES[i][band]), bodyFont, maxTextW);
+                    for (const w of wrapped) items.push({ text: w, font: bodyFont });
+                    items.push({ text: '', font: bodyFont });
+                }
+
+                const textH = padTop + headerH + 4 + items.length * lineH + padBottom;
 
                 // Viz snapshot — pulled from the live p5 canvas
                 const srcCanvas = (p5Instance && p5Instance.canvas) ? p5Instance.canvas : null;
@@ -7027,9 +7052,9 @@
                 ctx.font = 'bold 36px monospace';
                 ctx.fillText('SIGNAL READING', W / 2, y);
                 y += headerH + 4;
-                ctx.font = '20px monospace';
-                for (const line of lines) {
-                    ctx.fillText(line, W / 2, y);
+                for (const item of items) {
+                    ctx.font = item.font;
+                    ctx.fillText(item.text, W / 2, y);
                     y += lineH;
                 }
 
