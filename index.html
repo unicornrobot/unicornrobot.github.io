@@ -1968,7 +1968,8 @@
                              p5Instance.clearCanvas?.(); // Use optional chaining
                          }
                         console.log("Auto-reconnect successful.");
-                        if (isInstallationMode) startWatching();
+                        // Defer so p5's async setup() finishes before we kick the loop
+                        if (isInstallationMode) setTimeout(startWatching, 100);
                         return true; // Indicate success
                     } catch (err) {
                         console.warn(`Failed to auto-reopen remembered port: ${err.message}. Manual connection required.`);
@@ -6832,7 +6833,7 @@
                      p5Instance.clearCanvas?.(); // Use optional chaining
                      p5Instance.redraw(); // Show initial message
                  }
-                 if (port && port.readable && isInstallationMode) startWatching();
+                 if (port && port.readable && isInstallationMode) setTimeout(startWatching, 100);
             }
         });
 
