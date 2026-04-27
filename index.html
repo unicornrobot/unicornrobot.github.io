@@ -6986,8 +6986,6 @@
                 const lowLine  = `Lowest:  ${_elements[_minIdx]} (${avgs[_minIdx]})`;
 
                 const lines = [
-                    'SIGNAL READING',
-                    //'--- Unique data ---',
                     ts,
                     '',
                     avgLine,
@@ -6995,13 +6993,73 @@
                     lowLine,
                     '',
                     ...fortuneLines,
-                    '',
                 ];
+
+                // ── Build composite receipt PNG (384px = EM5820 native width) ──
+                const W = 384;
+                const padX = 8, padTop = 12, padBottom = 12, padBetween = 14;
+                const headerH = 40, lineH = 22;
+                const textH = padTop + headerH + 4 + lines.length * lineH + padBottom;
+
+                // Viz snapshot — pulled from the live p5 canvas
+                const srcCanvas = (p5Instance && p5Instance.canvas) ? p5Instance.canvas : null;
+                let imgH = 0;
+                if (srcCanvas && srcCanvas.width > 0) {
+                    imgH = Math.round(W * (srcCanvas.height / srcCanvas.width));
+                }
+
+                const totalH = textH + (imgH ? padBetween + imgH : 0);
+
+                const composite = document.createElement('canvas');
+                composite.width = W;
+                composite.height = totalH;
+                const ctx = composite.getContext('2d');
+
+                // White background
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(0, 0, W, totalH);
+
+                // Text — black on white, centred
+                ctx.fillStyle = '#000';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                let y = padTop;
+                ctx.font = 'bold 28px monospace';
+                ctx.fillText('SIGNAL READING', W / 2, y);
+                y += headerH + 4;
+                ctx.font = '15px monospace';
+                for (const line of lines) {
+                    ctx.fillText(line, W / 2, y);
+                    y += lineH;
+                }
+
+                // Viz snapshot — inverted so dark backgrounds print as white paper
+                if (imgH) {
+                    const imgY = textH + padBetween;
+                    ctx.drawImage(srcCanvas, 0, imgY, W, imgH);
+                    ctx.globalCompositeOperation = 'difference';
+                    ctx.fillStyle = '#fff';
+                    ctx.fillRect(0, imgY, W, imgH);
+                    ctx.globalCompositeOperation = 'source-over';
+                }
+
+                // Flip the whole composite vertically so the printer's feed direction
+                // produces a strip the user reads top-to-bottom in their orientation
+                const flipped = document.createElement('canvas');
+                flipped.width = W;
+                flipped.height = totalH;
+                const fctx = flipped.getContext('2d');
+                fctx.translate(0, totalH);
+                fctx.scale(1, -1);
+                fctx.drawImage(composite, 0, 0);
+
+                const imageBase64 = flipped.toDataURL('image/png');
+
                 const baseUrl = (printServerUrl.value || 'http://localhost:3001').replace(/\/$/, '');
                 const resp = await fetch(`${baseUrl}/print`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ lines: [...lines].reverse(), cut: true }),
+                    body: JSON.stringify({ imageBase64 }),
                 });
                 if (!resp.ok) throw new Error(`Server ${resp.status}`);
                 printStatus.textContent = 'Printed.';

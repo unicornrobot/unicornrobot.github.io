@@ -1,52 +1,24 @@
-// Thermal printer server for EM5820 — writes raw ESC/POS to /dev/usb/lp0
+// Thermal printer server — receives a PNG image from the client and prints
+// it via the TiMini-Print CLI binary.
+//
 // Run: node print-server.js
-// Requires: npm install express  (no other dependencies)
+// Requires: npm install express
+//
+// The TiMini-Print binary path can be overridden with the TIMINI_BIN env var.
+// Default expects the binary to be in the same directory as this server.
 
 const express = require('express');
 const fs      = require('fs');
+const os      = require('os');
 const path    = require('path');
+const { spawn } = require('child_process');
 
-const PRINTER = '/dev/usb/lp0';
-const PORT    = 3001;
-
-// ESC/POS command bytes
-const ESC = 0x1b;
-const GS  = 0x1d;
-const CMD = {
-    reset:      Buffer.from([ESC, 0x40]),
-    alignCtr:   Buffer.from([ESC, 0x61, 0x01]),
-    bold:       Buffer.from([ESC, 0x45, 0x01]),
-    boldOff:    Buffer.from([ESC, 0x45, 0x00]),
-    dblSize:    Buffer.from([GS,  0x21, 0x11]),  // 2x width + 2x height
-    normalSize: Buffer.from([GS,  0x21, 0x00]),
-    feed3:      Buffer.from([ESC, 0x64, 0x03]),
-    cut:        Buffer.from([GS,  0x56, 0x41, 0x03]),
-    newline:    Buffer.from([0x0a]),
-};
-
-function buildPrintBuffer(lines, cut) {
-    const parts = [CMD.reset, CMD.alignCtr];
-    // Find last non-empty line index — that's the header (printout is reversed)
-    let headerIdx = -1;
-    for (let i = lines.length - 1; i >= 0; i--) {
-        if (lines[i] && lines[i].trim().length > 0) { headerIdx = i; break; }
-    }
-    lines.forEach((line, i) => {
-        if (i === headerIdx) {
-            parts.push(CMD.bold, CMD.dblSize);
-            parts.push(Buffer.from(line + '\n', 'utf8'));
-            parts.push(CMD.boldOff, CMD.normalSize);
-        } else {
-            parts.push(Buffer.from(line + '\n', 'utf8'));
-        }
-    });
-    parts.push(CMD.feed3);
-    if (cut) parts.push(CMD.cut);
-    return Buffer.concat(parts);
-}
+const PORT       = 3001;
+const TIMINI_BIN = process.env.TIMINI_BIN
+    || path.join(__dirname, 'TiMini-Print-Command-Line-Linux-arm64');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '20mb' }));
 
 app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -56,29 +28,45 @@ app.use((req, res, next) => {
 });
 app.options('/{*path}', (req, res) => res.sendStatus(204));
 
-app.get('/', (req, res) => res.json({ status: 'Print server online', device: PRINTER }));
+app.get('/', (req, res) => res.json({
+    status: 'Print server online',
+    bin: TIMINI_BIN,
+}));
 
 app.post('/print', (req, res) => {
-    const { lines = [], cut = true } = req.body;
-    const buf = buildPrintBuffer(lines, cut);
-    fs.open(PRINTER, 'w', (err, fd) => {
+    const { imageBase64 } = req.body;
+    if (!imageBase64) return res.status(400).json({ error: 'imageBase64 required' });
+
+    const tmpPath = path.join(os.tmpdir(), `print-${Date.now()}-${process.pid}.png`);
+    const buf = Buffer.from(imageBase64.replace(/^data:.*?;base64,/, ''), 'base64');
+
+    fs.writeFile(tmpPath, buf, (err) => {
         if (err) {
-            console.error('Open failed:', err.message);
-            return res.status(503).json({ error: err.message });
+            console.error('Write temp failed:', err.message);
+            return res.status(500).json({ error: err.message });
         }
-        fs.write(fd, buf, (err2) => {
-            fs.close(fd, () => {});
-            if (err2) {
-                console.error('Write failed:', err2.message);
-                return res.status(500).json({ error: err2.message });
+        const proc = spawn(TIMINI_BIN, [tmpPath]);
+        let stderr = '';
+        proc.stderr.on('data', d => { stderr += d.toString(); });
+        proc.on('error', e => {
+            fs.unlink(tmpPath, () => {});
+            console.error('Spawn failed:', e.message);
+            res.status(500).json({ error: e.message });
+        });
+        proc.on('close', code => {
+            fs.unlink(tmpPath, () => {});
+            if (code === 0) {
+                console.log(`Printed image (${buf.length} bytes)`);
+                res.json({ ok: true });
+            } else {
+                console.error(`TiMini-Print exit ${code}: ${stderr.trim()}`);
+                res.status(500).json({ error: stderr.trim() || `exit ${code}` });
             }
-            console.log(`Printed ${lines.length} lines`);
-            res.json({ ok: true });
         });
     });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Print server listening on port ${PORT}`);
-    console.log(`Writing to ${PRINTER}`);
+    console.log(`Using binary: ${TIMINI_BIN}`);
 });
