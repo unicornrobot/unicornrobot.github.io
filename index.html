@@ -7042,18 +7042,9 @@
                     ctx.fillRect(0, imgY, W, imgH);
                     ctx.globalCompositeOperation = 'source-over';
                 }
+                
 
-                // Flip the whole composite vertically so the printer's feed direction
-                // produces a strip the user reads top-to-bottom in their orientation
-                const flipped = document.createElement('canvas');
-                flipped.width = W;
-                flipped.height = totalH;
-                const fctx = flipped.getContext('2d');
-                fctx.translate(0, totalH);
-                fctx.scale(1, -1);
-                fctx.drawImage(composite, 0, 0);
-
-                const imageBase64 = flipped.toDataURL('image/png');
+                const imageBase64 = composite.toDataURL('image/png');
 
                 const baseUrl = (printServerUrl.value || 'http://localhost:3001').replace(/\/$/, '');
                 const resp = await fetch(`${baseUrl}/print`, {
