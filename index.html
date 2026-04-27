@@ -6995,10 +6995,10 @@
                     ...fortuneLines,
                 ];
 
-                // ── Build composite receipt PNG (384px = EM5820 native width) ──
+                // ── Build composite receipt PNG (384px = X6 native width) ── 384 px
                 const W = 384;
                 const padX = 8, padTop = 12, padBottom = 12, padBetween = 14;
-                const headerH = 40, lineH = 22;
+                const headerH = 52, lineH = 28;
                 const textH = padTop + headerH + 4 + lines.length * lineH + padBottom;
 
                 // Viz snapshot — pulled from the live p5 canvas
@@ -7024,10 +7024,10 @@
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'top';
                 let y = padTop;
-                ctx.font = 'bold 28px monospace';
+                ctx.font = 'bold 36px monospace';
                 ctx.fillText('SIGNAL READING', W / 2, y);
                 y += headerH + 4;
-                ctx.font = '15px monospace';
+                ctx.font = '20px monospace';
                 for (const line of lines) {
                     ctx.fillText(line, W / 2, y);
                     y += lineH;

@@ -45,7 +45,7 @@ app.post('/print', (req, res) => {
             console.error('Write temp failed:', err.message);
             return res.status(500).json({ error: err.message });
         }
-        const proc = spawn(TIMINI_BIN, [tmpPath]);
+        const proc = spawn(TIMINI_BIN, ['--darkness', '5', tmpPath]);
         let stderr = '';
         proc.stderr.on('data', d => { stderr += d.toString(); });
         proc.on('error', e => {
