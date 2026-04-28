@@ -594,19 +594,40 @@
                     <div style="display:flex; gap:6px; margin-bottom:6px;">
                         <a href="gallery.html" target="_blank" style="flex:1; display:block; padding:5px 8px; border-radius:5px; border:1px solid #2a2a2a; background:#1a1a1a; color:#bbb; font-size:12px; text-align:center; text-decoration:none; cursor:pointer;">Open Gallery</a>
                     </div>
-                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                    <div style="display:flex; gap:6px;">
+                        <button id="exportReadingsBtn" style="flex:1; background:#1a237e; color:#90caf9; border-color:#1a237e;">Export JSON</button>
+                        <button id="clearReadingsBtn"  style="flex:1; background:#3b0f0f; color:#f87171; border-color:#4d1515;">Clear All</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Print Management -->
+            <div class="sb-section" data-key="print">
+                <div class="sb-section-header">
+                    <span class="sb-drag-handle" title="Drag to reorder">⠿</span>
+                    <span class="sb-section-title">Print Management</span>
+                    <span class="sb-chevron">▾</span>
+                </div>
+                <div class="sb-section-body">
+                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
                         <label style="font-size:10px; color:#555; white-space:nowrap;">Server</label>
                         <input type="text" id="printServerUrl" value="http://localhost:3001"
                             style="flex:1; font-size:10px; padding:2px 4px; background:#111; color:#ccc; border:1px solid #333; border-radius:3px;">
+                    </div>
+                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                        <input type="checkbox" id="printIncludeFortuneCheckbox" checked>
+                        <label for="printIncludeFortuneCheckbox" style="font-size:11px;">Include fortune text</label>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                        <label for="printVizSelect" style="flex:0 0 auto; font-size:11px;">Print viz</label>
+                        <select id="printVizSelect" style="flex:1;">
+                            <option value="">Current viz</option>
+                        </select>
                     </div>
                     <div style="display:flex; gap:6px; margin-bottom:4px;">
                         <button id="printReadingBtn" style="flex:1; background:#1a2e1a; color:#86efac; border-color:#1f3d1f;">Print Reading</button>
                     </div>
                     <div id="printStatus" style="font-size:10px; color:#555; text-align:center; min-height:14px;"></div>
-                    <div style="display:flex; gap:6px;">
-                        <button id="exportReadingsBtn" style="flex:1; background:#1a237e; color:#90caf9; border-color:#1a237e;">Export JSON</button>
-                        <button id="clearReadingsBtn"  style="flex:1; background:#3b0f0f; color:#f87171; border-color:#4d1515;">Clear All</button>
-                    </div>
                 </div>
             </div>
 
@@ -1006,6 +1027,15 @@
                 currentVisualization = resultsEnabled[0]?.key || 'lines';
                 vizSelect.value = currentVisualization;
             }
+            // Mirror into printVizSelect (with "Current viz" option at top)
+            if (printVizSelect) {
+                printVizSelect.innerHTML = '<option value="">Current viz</option>' +
+                    resultsEnabled.map(v => `<option value="${v.key}"${v.key === printVizKey ? ' selected' : ''}>${v.label}</option>`).join('');
+                if (printVizKey && !resultsEnabled.find(v => v.key === printVizKey)) {
+                    printVizKey = '';
+                    printVizSelect.value = '';
+                }
+            }
         }
 
         function renderVizToggles() {
@@ -1081,6 +1111,10 @@
         const printReadingBtn     = document.getElementById('printReadingBtn');
         const printStatus         = document.getElementById('printStatus');
         const printServerUrl      = document.getElementById('printServerUrl');
+        const printIncludeFortuneCheckbox = document.getElementById('printIncludeFortuneCheckbox');
+        const printVizSelect      = document.getElementById('printVizSelect');
+        let   printIncludeFortune = true;
+        let   printVizKey         = ''; // empty = use whatever's currently displayed
         const installationModeCheckbox  = document.getElementById('installationModeCheckbox');
         const hideGlitchCursorCheckbox      = document.getElementById('hideGlitchCursorCheckbox');
         const allowClickFullscreenCheckbox  = document.getElementById('allowClickFullscreenCheckbox');
@@ -1303,6 +1337,9 @@
                 radioSoundLive:        radioSoundLiveCheckbox.checked,
                 allowClickFullscreen: allowClickFullscreenCheckbox.checked,
                 autoPrintResult: autoPrintResultCheckbox.checked,
+                printIncludeFortune: printIncludeFortuneCheckbox.checked,
+                printVizKey: printVizKey,
+                printServerUrl: printServerUrl.value,
                 triggerSensors: triggerSensorsInput.value,
                 triggerMinCount: triggerMinCountInput.value,
                 triggerThreshold: triggerThresholdInput.value,
@@ -1381,6 +1418,10 @@
                     allowClickFullscreen = allowClickFullscreenCheckbox.checked;
                     autoPrintResultCheckbox.checked = settings.autoPrintResult === true;
                     autoPrintResult = autoPrintResultCheckbox.checked;
+                    printIncludeFortuneCheckbox.checked = settings.printIncludeFortune !== false;
+                    printIncludeFortune = printIncludeFortuneCheckbox.checked;
+                    printVizKey = settings.printVizKey || '';
+                    if (settings.printServerUrl) printServerUrl.value = settings.printServerUrl;
                     if (settings.triggerSensors) triggerSensorsInput.value = settings.triggerSensors;
                     if (settings.triggerMinCount) { triggerMinCountInput.value = settings.triggerMinCount; TRIGGER_MIN_COUNT = parseInt(settings.triggerMinCount, 10); }
                     if (settings.triggerThreshold) { triggerThresholdInput.value = settings.triggerThreshold; TRIGGER_THRESHOLD = parseInt(settings.triggerThreshold, 10); }
@@ -7026,7 +7067,20 @@
                     items.push({ text: '', font: bodyFont });
                 }
 
-                const textH = padTop + headerH + 4 + items.length * lineH + padBottom;
+                const textH = printIncludeFortune
+                    ? padTop + headerH + 4 + items.length * lineH + padBottom
+                    : 0;
+
+                // Optionally switch the displayed viz so we can snapshot a different one
+                let _restoreViz = null;
+                if (printVizKey && printVizKey !== currentVisualization && p5Instance) {
+                    _restoreViz = currentVisualization;
+                    currentVisualization = printVizKey;
+                    p5Instance._tileCacheDirty = true;
+                    p5Instance.redraw();
+                    // Wait a couple of frames so the viz actually paints
+                    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+                }
 
                 // Viz snapshot — pulled from the live p5 canvas
                 const srcCanvas = (p5Instance && p5Instance.canvas) ? p5Instance.canvas : null;
@@ -7035,39 +7089,48 @@
                     imgH = Math.round(W * (srcCanvas.height / srcCanvas.width));
                 }
 
-                const totalH = textH + (imgH ? padBetween + imgH : 0);
+                const totalH = (textH ? textH : 0) + (imgH ? (textH ? padBetween : 0) + imgH : 0);
 
                 const composite = document.createElement('canvas');
                 composite.width = W;
-                composite.height = totalH;
+                composite.height = totalH || 1;
                 const ctx = composite.getContext('2d');
 
                 // White background
                 ctx.fillStyle = '#fff';
                 ctx.fillRect(0, 0, W, totalH);
 
-                // Text — black on white, centred
-                ctx.fillStyle = '#000';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'top';
-                let y = padTop;
-                ctx.font = 'bold 36px monospace';
-                ctx.fillText('YOUR READING', W / 2, y);
-                y += headerH + 4;
-                for (const item of items) {
-                    ctx.font = item.font;
-                    ctx.fillText(item.text, W / 2, y);
-                    y += lineH;
+                // Text section (header + summary + fortunes) — only if enabled
+                if (printIncludeFortune) {
+                    ctx.fillStyle = '#000';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    let y = padTop;
+                    ctx.font = 'bold 36px monospace';
+                    ctx.fillText('YOUR READING', W / 2, y);
+                    y += headerH + 4;
+                    for (const item of items) {
+                        ctx.font = item.font;
+                        ctx.fillText(item.text, W / 2, y);
+                        y += lineH;
+                    }
                 }
 
                 // Viz snapshot — inverted so dark backgrounds print as white paper
                 if (imgH) {
-                    const imgY = textH + padBetween;
+                    const imgY = (textH ? textH + padBetween : 0);
                     ctx.drawImage(srcCanvas, 0, imgY, W, imgH);
                     ctx.globalCompositeOperation = 'difference';
                     ctx.fillStyle = '#fff';
                     ctx.fillRect(0, imgY, W, imgH);
                     ctx.globalCompositeOperation = 'source-over';
+                }
+
+                // Restore the previously displayed viz
+                if (_restoreViz !== null) {
+                    currentVisualization = _restoreViz;
+                    p5Instance._tileCacheDirty = true;
+                    p5Instance.redraw();
                 }
                 
 
@@ -7170,6 +7233,18 @@
             autoPrintResult = e.target.checked;
             saveSettings();
         });
+
+        printIncludeFortuneCheckbox.addEventListener('change', (e) => {
+            printIncludeFortune = e.target.checked;
+            saveSettings();
+        });
+
+        printVizSelect.addEventListener('change', (e) => {
+            printVizKey = e.target.value;
+            saveSettings();
+        });
+
+        printServerUrl.addEventListener('change', () => saveSettings());
 
         glitchEnabledCheckbox.addEventListener('change', (e) => {
             glitchEnabled = e.target.checked; saveSettings();
