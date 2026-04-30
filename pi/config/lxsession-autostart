@@ -1,9 +1,5 @@
 @xset s off
 @xset -dpms
 @xset s noblank
-<<<<<<< HEAD
-@chromium-browser --kiosk --noerrdialogs --disable-infobars --disable-session-crashed-bubble https://unicornrobot.github.io
-=======
 @chromium --kiosk --noerrdialogs --disable-infobars --disable-session-crashed-bubble https://unicornrobot.github.io
-EOF
->>>>>>> 40d78df08b097172ff2aa62a9049c1d6a9b5b522
+@unclutter -idle 0.1 -root &
