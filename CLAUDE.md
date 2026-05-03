@@ -362,3 +362,4 @@ The installation targets a Raspberry Pi 4 running Chromium full-screen. Broadcom
 - **Usage telemetry** (local-only, opt-in): readings per day, most-triggered sensor, most-selected viz — stored in IndexedDB for operator review.
 - **Fortune text editor**: sidebar UI to edit the 8×3 FORTUNES array live; persist to localStorage. Lets the operator localise the reading text without code edits.
 - **Printer status polling**: poll `GET /` on the print server and show online/out-of-paper/offline in the sidebar.
+

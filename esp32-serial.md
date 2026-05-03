@@ -80,7 +80,7 @@ void loop() {
 
   // Send compact binary frame: [0xFF header][bitmask][checksum]
   uint8_t checksum = 0xFF ^ touched;
-  Serial2.write(0xFF);
+  Serial2.write(0xFF);j
   Serial2.write(touched);
   Serial2.write(checksum);
 

@@ -16,6 +16,8 @@ white flashes between some viz readings (mask?)
 improve tapestry viz readings.
 
 vanilla crt shader model
+fx over the whole canvas?
+
 
 
 Template dashboard for wooden screen cover

@@ -689,6 +689,8 @@
         let expectedDataLength = -1; // To store the number of values per line, determined by first valid data line
         let lastValidProgress = 0;
         let absoluteLatestData = null; // Store the very last parsed data line
+        let _lastSerialMs = 0;          // Timestamp of last successful serial parse — for waiting-scene idle gate
+        let _idleRedrawTimer = null;    // Low-rate redraw interval for breathing animations while idle
         let latestRawValues = [];     // All raw serial values for live sidebar display
         let collectIndefinitely = false; // Flag for indefinite collection
         let overlayDrawSpeed = 1.0; // Default drawing speed (pixels per frame)
@@ -1798,6 +1800,10 @@
                     absoluteLatestData = vizChannelIndices.length > 0
                         ? vizChannelIndices.map(i => values[i] != null ? values[i] : 0)
                         : values;
+
+                    // Mark serial activity & wake the main loop if we're idle in the waiting scene
+                    _lastSerialMs = performance.now();
+                    if (isWatching && p5Instance) p5Instance.loop();
 
                     // --- Button Channel Interception ---
                     // Firmware outputs 360 on press. Debounced per channel.
@@ -3368,36 +3374,46 @@
             };
 
             // text: instruction/label tile — displays configurable text, auto-sized to fit the circle
+            // Wrapped-text cache keyed by tile — recomputes only when text or radius changes.
+            // textWidth() is expensive; we used to call it every frame in a while loop.
+            const _ls_text_cache = new WeakMap();
+
             const _ls_text = (tile, cx, cy, r) => {
                 const str = tile.text || '';
                 if (!str) return;
-                const t = p.frameCount;
-                // Gentle breathing alpha
-                const alpha = p.map(p.sin(t * 0.018), -1, 1, 0.45, 0.9);
+                const maxW = r * 1.6;
+
+                let cached = _ls_text_cache.get(tile);
+                if (!cached || cached.text !== str || cached.maxW !== maxW) {
+                    p.textFont('sans-serif');
+                    let sz = r * 0.28;
+                    p.textSize(sz);
+                    const words = str.split(' ');
+                    const lines = [];
+                    let line = '';
+                    for (const w of words) {
+                        const test = line ? line + ' ' + w : w;
+                        if (p.textWidth(test) > maxW && line) { lines.push(line); line = w; }
+                        else line = test;
+                    }
+                    if (line) lines.push(line);
+                    while (sz > r * 0.08 && lines.some(l => p.textWidth(l) > maxW)) {
+                        sz -= r * 0.02; p.textSize(sz);
+                    }
+                    cached = { text: str, maxW, lines, sz };
+                    _ls_text_cache.set(tile, cached);
+                }
+
+                // Render from cache
+                const alpha = p.map(p.sin(p.frameCount * 0.018), -1, 1, 0.45, 0.9);
                 p.noStroke();
                 p.fill(0, 0, 90, alpha);
                 p.textAlign(p.CENTER, p.CENTER);
                 p.textFont('sans-serif');
-                // Scale font so text fits within the circle diameter
-                const maxW = r * 1.6;
-                let sz = r * 0.28;
-                p.textSize(sz);
-                // Wrap into lines no wider than maxW, then shrink if needed
-                const words = str.split(' ');
-                let lines = [], line = '';
-                for (const w of words) {
-                    const test = line ? line + ' ' + w : w;
-                    if (p.textWidth(test) > maxW && line) { lines.push(line); line = w; }
-                    else line = test;
-                }
-                if (line) lines.push(line);
-                // If any line is still too wide, reduce size
-                while (sz > r * 0.08 && lines.some(l => p.textWidth(l) > maxW)) {
-                    sz -= r * 0.02; p.textSize(sz);
-                }
-                const lineH = sz * 1.3;
-                const totalH = lines.length * lineH;
-                lines.forEach((l, i) => p.text(l, cx, cy - totalH / 2 + i * lineH + lineH / 2));
+                p.textSize(cached.sz);
+                const lineH = cached.sz * 1.3;
+                const totalH = cached.lines.length * lineH;
+                cached.lines.forEach((l, i) => p.text(l, cx, cy - totalH / 2 + i * lineH + lineH / 2));
             };
 
             // ch_foldball: CPU raymarch of a domain-folded sphere with cosine surface detail.
@@ -3411,30 +3427,30 @@
             //   o=tanh(o/1e4);
             // val drives rotation speed + fold frequency; history avg shifts surface phase.
             const _ls_foldball = (() => {
-                // Fixed low resolution — Pi 4 budget
-                const RES = 28;
-                let _pg       = null;
-                let _imgData  = null;
-                let _buf      = null;
-                let _lastFrame = -1;  // frame number of last full render
-                const SKIP = 2;       // render every Nth frame; reuse otherwise
+                // Lower resolution on Pi/ARM where every CPU pixel hurts
+                const IS_ARM = /aarch|armv/i.test(navigator.userAgent || '');
+                const RES = IS_ARM ? 20 : 28;
+                const SKIP = 2;             // render every Nth frame; reuse otherwise
+                const _cache = new Map();   // channel → { pg, imgData, buf, lastFrame }
 
                 return (val, history, ch, nCh, cx, cy, r) => {
                     const norm = p.constrain(val / 360, 0, 1);
                     const { h: hue } = getChannelColor(Math.max(ch, 0), nCh, [val]);
                     const t = p.frameCount;
 
-                    // Allocate once
-                    if (!_pg) {
-                        _pg      = p.createGraphics(RES, RES);
-                        _pg.pixelDensity(1);
-                        _imgData = _pg.drawingContext.createImageData(RES, RES);
-                        _buf     = _imgData.data;
+                    // Per-channel cache — multiple tiles on the same channel share one render
+                    let entry = _cache.get(ch);
+                    if (!entry) {
+                        const pg = p.createGraphics(RES, RES);
+                        pg.pixelDensity(1);
+                        const imgData = pg.drawingContext.createImageData(RES, RES);
+                        entry = { pg, imgData, buf: imgData.data, lastFrame: -999 };
+                        _cache.set(ch, entry);
                     }
+                    const _pg = entry.pg, _imgData = entry.imgData, _buf = entry.buf;
 
-                    // Render every SKIP frames — reuse last result on skip frames
-                    if (t - _lastFrame >= SKIP) {
-                        _lastFrame = t;
+                    if (t - entry.lastFrame >= SKIP) {
+                        entry.lastFrame = t;
 
                         const tt     = t * (0.004 + norm * 0.018);
                         const histAvg = (history && history.length)
@@ -4105,6 +4121,9 @@
 
                     const _renderTileToCache = (tile, bx, by, bw, bh) => {
                         if (tile.type === 'viewer' || tile.type === 'empty') return;
+                        // Skip the expensive panel render for the actively-dragged/resized tile.
+                        // _blitTile will draw a placeholder; the cache is invalidated on mouse-up.
+                        if (p._dashDragTile === tile || p._dashResizeTile === tile) return;
                         const tc = _getTileCanvas(tile.id, bw, bh);
                         if (!p._tileCacheDirty) return;
                         // Render into main canvas at position, then copy to offscreen
@@ -4122,6 +4141,14 @@
                     };
 
                     const _blitTile = (tile, bx, by, bw, bh) => {
+                        // Active drag/resize: lightweight placeholder rect, no cache work
+                        if (p._dashDragTile === tile || p._dashResizeTile === tile) {
+                            p.noStroke(); p.fill(0, 0, 14);
+                            p.rect(bx, by, bw, bh, 4);
+                            p.noFill(); p.stroke(45, 70, 70, 0.6); p.strokeWeight(1);
+                            p.rect(bx, by, bw, bh, 4);
+                            return;
+                        }
                         if (tile.type === 'viewer') {
                             const srcType = p._dashViewerSource;
                             if (srcType) {
@@ -4842,6 +4869,14 @@
                 let cnv = p.createCanvas(canvasWidth, canvasHeight);
                 cnv.parent('canvasContainer'); // Attach canvas to the div
 
+                // Low-rate redraw timer — keeps idle breathing animations going at ~15 fps
+                // when the main loop is paused by the waiting-scene idle gate.
+                if (!_idleRedrawTimer) {
+                    _idleRedrawTimer = setInterval(() => {
+                        if (isWatching && p5Instance) p5Instance.redraw();
+                    }, 67);
+                }
+
                 // Suppress right-click context menu and long-press context menu when click interactions are disabled
                 p.canvas.addEventListener('contextmenu', e => { if (!allowClickFullscreen) e.preventDefault(); });
 
@@ -5359,10 +5394,13 @@
             // intervals: unison, maj2, maj3, p4, p5, maj6, maj7, octave
             const RADIO_HARMONIC_FREQS = [220, 247.5, 275, 293.3, 330, 367.5, 412.5, 440];
 
-            // 8 independent oscillators — one per channel, always running, gain = 0 when silent
+            // 8 oscillators — lazy-created on first non-trivial proximity, torn down after 10s idle
             const _radioToneOscs  = new Array(8).fill(null);
             const _radioToneGains = new Array(8).fill(null);
-            let   _radioToneMaster = null;
+            let   _radioToneMaster        = null;
+            let   _radioToneLastActiveMs  = 0;
+            let   _radioToneIdleTimer     = null;
+            const _RADIO_TONE_IDLE_MS     = 10000;
 
             const _initRadioTones = () => {
                 if (_radioToneMaster) return;
@@ -5386,11 +5424,33 @@
                 } catch(e) {}
             };
 
+            const _teardownRadioTones = () => {
+                for (let i = 0; i < 8; i++) {
+                    if (_radioToneOscs[i])  { try { _radioToneOscs[i].stop();  } catch(e){} try { _radioToneOscs[i].disconnect();  } catch(e){} _radioToneOscs[i]  = null; }
+                    if (_radioToneGains[i]) { try { _radioToneGains[i].disconnect(); } catch(e){} _radioToneGains[i] = null; }
+                }
+                if (_radioToneMaster) { try { _radioToneMaster.disconnect(); } catch(e){} _radioToneMaster = null; }
+                if (_radioToneIdleTimer) { clearInterval(_radioToneIdleTimer); _radioToneIdleTimer = null; }
+            };
+
             // proximities: array of 8 values (0–1) per channel, or null to silence all
             p.updateRadioHarmonicTone = (proximities) => {
                 try {
-                    _initRadioTones();
-                    if (!_radioToneMaster) return;
+                    // Detect any meaningful activity this call
+                    let anyActive = false;
+                    if (proximities) {
+                        for (let i = 0; i < 8; i++) {
+                            if ((proximities[i] || 0) > 0.01) { anyActive = true; break; }
+                        }
+                    }
+
+                    // Lazy-create on first activity. If silent and not yet created, do nothing.
+                    if (!_radioToneMaster) {
+                        if (!anyActive) return;
+                        _initRadioTones();
+                        if (!_radioToneMaster) return;
+                    }
+
                     const ac  = _ensureAudioCtx();
                     const now = ac.currentTime;
                     const TAU = 0.15;
@@ -5401,6 +5461,19 @@
                         const targetGain = 0.14 * prox * prox;
                         g.gain.cancelScheduledValues(now);
                         g.gain.setTargetAtTime(targetGain, now, TAU);
+                    }
+
+                    // Track activity → start idle-teardown watchdog if needed
+                    if (anyActive) {
+                        _radioToneLastActiveMs = performance.now();
+                        if (!_radioToneIdleTimer) {
+                            _radioToneIdleTimer = setInterval(() => {
+                                if (_radioToneMaster &&
+                                    performance.now() - _radioToneLastActiveMs > _RADIO_TONE_IDLE_MS) {
+                                    _teardownRadioTones();
+                                }
+                            }, 2000);
+                        }
                     }
                 } catch(e) {}
             };
@@ -5537,6 +5610,9 @@
                     if (idx !== -1) { dashboardLayout.tiles.splice(idx, 1); saveSettings(); p.redraw(); renderDashFreeTileList(); }
                 }
                 if (p._dashDragTile) renderDashFreeTileList();
+                // After drag/resize finishes, invalidate the cache so the active tile
+                // re-renders properly at its new size/position on the next frame.
+                if (p._dashDragTile || p._dashResizeTile) { p._tileCacheDirty = true; p.redraw(); }
                 p._dashDeleteTile = null; p._dashDragTile = null; p._dashResizeTile = null;
 
                 // Live scene delete
@@ -6052,6 +6128,12 @@
                             sigilDissolving = false;
                             sigilDissolveAlpha = 0;
                         }
+                    }
+
+                    // Idle gate: stop the 60 fps draw loop after 200 ms of serial silence.
+                    // The low-rate _idleRedrawTimer keeps redraw firing for breathing animations.
+                    if (isWatching && !sigilDissolving && (performance.now() - _lastSerialMs) > 200) {
+                        p.noLoop();
                     }
 
                     return; // Skip remaining draw logic
@@ -7447,19 +7529,26 @@
                          <button data-idx="${i}" class="dt-del" style="padding:1px 5px;background:#3b0f0f;color:#f87171;border-color:#4d1515;min-width:20px;">×</button>
                      </div>`).join('');
 
-                 list.querySelectorAll('.dt-inp').forEach(el => el.addEventListener('change', e => {
-                     dashboardLayout.tiles[+e.target.dataset.idx][e.target.dataset.field] = parseInt(e.target.value);
-                     saveSettings(); if (p5Instance) p5Instance.redraw();
-                 }));
-                 list.querySelectorAll('.dt-type').forEach(el => el.addEventListener('change', e => {
-                     dashboardLayout.tiles[+e.target.dataset.idx].type = e.target.value;
-                     if (p5Instance) p5Instance._tileCacheDirty = true;
-                     saveSettings(); if (p5Instance) p5Instance.redraw();
-                 }));
-                 list.querySelectorAll('.dt-del').forEach(el => el.addEventListener('click', e => {
-                     dashboardLayout.tiles.splice(+e.target.dataset.idx, 1);
-                     renderDashTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
-                 }));
+                 if (!list._delegated) {
+                     list._delegated = true;
+                     list.addEventListener('change', e => {
+                         const t = e.target; const idx = +t.dataset.idx;
+                         if (t.classList.contains('dt-inp')) {
+                             dashboardLayout.tiles[idx][t.dataset.field] = parseInt(t.value);
+                             saveSettings(); if (p5Instance) p5Instance.redraw();
+                         } else if (t.classList.contains('dt-type')) {
+                             dashboardLayout.tiles[idx].type = t.value;
+                             if (p5Instance) p5Instance._tileCacheDirty = true;
+                             saveSettings(); if (p5Instance) p5Instance.redraw();
+                         }
+                     });
+                     list.addEventListener('click', e => {
+                         if (e.target.classList.contains('dt-del')) {
+                             dashboardLayout.tiles.splice(+e.target.dataset.idx, 1);
+                             renderDashTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
+                         }
+                     });
+                 }
              }
 
              // Free-mode tile list (just shows type selects + delete)
@@ -7477,15 +7566,22 @@
                          <button data-idx="${i}" class="dft-del" style="padding:1px 5px;background:#3b0f0f;color:#f87171;border-color:#4d1515;min-width:20px;">×</button>
                      </div>`).join('');
 
-                 list.querySelectorAll('.dft-type').forEach(el => el.addEventListener('change', e => {
-                     dashboardLayout.tiles[+e.target.dataset.idx].type = e.target.value;
-                     if (p5Instance) p5Instance._tileCacheDirty = true;
-                     saveSettings(); if (p5Instance) p5Instance.redraw();
-                 }));
-                 list.querySelectorAll('.dft-del').forEach(el => el.addEventListener('click', e => {
-                     dashboardLayout.tiles.splice(+e.target.dataset.idx, 1);
-                     renderDashFreeTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
-                 }));
+                 if (!list._delegated) {
+                     list._delegated = true;
+                     list.addEventListener('change', e => {
+                         if (e.target.classList.contains('dft-type')) {
+                             dashboardLayout.tiles[+e.target.dataset.idx].type = e.target.value;
+                             if (p5Instance) p5Instance._tileCacheDirty = true;
+                             saveSettings(); if (p5Instance) p5Instance.redraw();
+                         }
+                     });
+                     list.addEventListener('click', e => {
+                         if (e.target.classList.contains('dft-del')) {
+                             dashboardLayout.tiles.splice(+e.target.dataset.idx, 1);
+                             renderDashFreeTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
+                         }
+                     });
+                 }
              }
 
              function applyDashMode(mode) {
@@ -7580,18 +7676,25 @@
                          <button data-idx="${i}" class="lst-del" style="padding:1px 5px;background:#3b0f0f;color:#f87171;border-color:#4d1515;min-width:20px;">×</button>
                      </div>`).join('');
 
-                 list.querySelectorAll('.lst-type').forEach(el => el.addEventListener('change', e => {
-                     liveSceneLayout.tiles[+e.target.dataset.idx].type = e.target.value;
-                     saveSettings(); if (p5Instance) p5Instance.redraw();
-                 }));
-                 list.querySelectorAll('.lst-ch').forEach(el => el.addEventListener('change', e => {
-                     liveSceneLayout.tiles[+e.target.dataset.idx].channel = parseInt(e.target.value);
-                     saveSettings(); if (p5Instance) p5Instance.redraw();
-                 }));
-                 list.querySelectorAll('.lst-del').forEach(el => el.addEventListener('click', e => {
-                     liveSceneLayout.tiles.splice(+e.target.dataset.idx, 1);
-                     renderLiveSceneTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
-                 }));
+                 if (!list._delegated) {
+                     list._delegated = true;
+                     list.addEventListener('change', e => {
+                         const t = e.target; const idx = +t.dataset.idx;
+                         if (t.classList.contains('lst-type')) {
+                             liveSceneLayout.tiles[idx].type = t.value;
+                             saveSettings(); if (p5Instance) p5Instance.redraw();
+                         } else if (t.classList.contains('lst-ch')) {
+                             liveSceneLayout.tiles[idx].channel = parseInt(t.value);
+                             saveSettings(); if (p5Instance) p5Instance.redraw();
+                         }
+                     });
+                     list.addEventListener('click', e => {
+                         if (e.target.classList.contains('lst-del')) {
+                             liveSceneLayout.tiles.splice(+e.target.dataset.idx, 1);
+                             renderLiveSceneTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
+                         }
+                     });
+                 }
              };
 
              function applyLsEditMode(on) {
@@ -7663,22 +7766,31 @@
                      </div>`;
                  }).join('');
 
-                 list.querySelectorAll('.wst-type').forEach(el => el.addEventListener('change', e => {
-                     waitingSceneLayout.tiles[+e.target.dataset.idx].type = e.target.value;
-                     saveSettings(); renderWaitingSceneTileList(); if (p5Instance) p5Instance.redraw();
-                 }));
-                 list.querySelectorAll('.wst-ch').forEach(el => el.addEventListener('change', e => {
-                     waitingSceneLayout.tiles[+e.target.dataset.idx].channel = parseInt(e.target.value);
-                     saveSettings(); if (p5Instance) p5Instance.redraw();
-                 }));
-                 list.querySelectorAll('.wst-text').forEach(el => el.addEventListener('input', e => {
-                     waitingSceneLayout.tiles[+e.target.dataset.idx].text = e.target.value;
-                     saveSettings(); if (p5Instance) p5Instance.redraw();
-                 }));
-                 list.querySelectorAll('.wst-del').forEach(el => el.addEventListener('click', e => {
-                     waitingSceneLayout.tiles.splice(+e.target.dataset.idx, 1);
-                     renderWaitingSceneTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
-                 }));
+                 if (!list._delegated) {
+                     list._delegated = true;
+                     list.addEventListener('change', e => {
+                         const t = e.target; const idx = +t.dataset.idx;
+                         if (t.classList.contains('wst-type')) {
+                             waitingSceneLayout.tiles[idx].type = t.value;
+                             saveSettings(); renderWaitingSceneTileList(); if (p5Instance) p5Instance.redraw();
+                         } else if (t.classList.contains('wst-ch')) {
+                             waitingSceneLayout.tiles[idx].channel = parseInt(t.value);
+                             saveSettings(); if (p5Instance) p5Instance.redraw();
+                         }
+                     });
+                     list.addEventListener('input', e => {
+                         if (e.target.classList.contains('wst-text')) {
+                             waitingSceneLayout.tiles[+e.target.dataset.idx].text = e.target.value;
+                             saveSettings(); if (p5Instance) p5Instance.redraw();
+                         }
+                     });
+                     list.addEventListener('click', e => {
+                         if (e.target.classList.contains('wst-del')) {
+                             waitingSceneLayout.tiles.splice(+e.target.dataset.idx, 1);
+                             renderWaitingSceneTileList(); saveSettings(); if (p5Instance) p5Instance.redraw();
+                         }
+                     });
+                 }
              };
 
              function applyWsEditMode(on) {

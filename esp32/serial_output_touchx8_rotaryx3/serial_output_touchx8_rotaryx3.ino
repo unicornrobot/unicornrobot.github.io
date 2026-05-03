@@ -50,9 +50,11 @@ After calibration, values are saved to EEPROM and loaded automatically on next b
 #define ROTARY_ENCODER_VCC_PIN -1 /* 27 put -1 of Rotary encoder Vcc is connected directly to 3,3V; else you can use declared output pin for powering rotary encoder */
 
 // ── Buttons (active LOW via INPUT_PULLUP) ──────────────────────────────────
-// Change these to match your wiring
-#define BUTTON1_PIN 22
-#define BUTTON2_PIN 23
+// NOTE: pins 22/23 conflicted with ROTARY_ENCODER1_B/A. Moved to 25/26.
+// 25 and 26 are general-purpose GPIOs with internal pullups available.
+// If your physical wiring uses different pins, update these to match.
+#define BUTTON1_PIN 25
+#define BUTTON2_PIN 26
 
 //depending on your encoder - try 1,2 or 4 to get expected behaviour
 //#define ROTARY_ENCODER_STEPS 1
@@ -62,7 +64,10 @@ After calibration, values are saved to EEPROM and loaded automatically on next b
 //instead of changing here, rather change numbers above
 AiEsp32RotaryEncoder rotaryEncoder1 = AiEsp32RotaryEncoder(ROTARY_ENCODER1_A_PIN, ROTARY_ENCODER1_B_PIN, ROTARY_ENCODER1_BUTTON_PIN, ROTARY_ENCODER_VCC_PIN, ROTARY_ENCODER_STEPS);
 AiEsp32RotaryEncoder rotaryEncoder2 = AiEsp32RotaryEncoder(ROTARY_ENCODER2_A_PIN, ROTARY_ENCODER2_B_PIN, ROTARY_ENCODER2_BUTTON_PIN, ROTARY_ENCODER_VCC_PIN, ROTARY_ENCODER_STEPS);
-AiEsp32RotaryEncoder rotaryEncoder3 = AiEsp32RotaryEncoder(ROTARY_ENCODER3_A_PIN, ROTARY_ENCODER3_B_PIN, ROTARY_ENCODER3_BUTTON_PIN, ROTARY_ENCODER_VCC_PIN, ROTARY_ENCODER_STEPS);
+// Encoder 3 disabled — pins 34/35/39 are input-only with no internal pullup,
+// so when not physically wired they float and the ISR fires on noise, starving
+// the main loop. Re-enable by uncommenting and adding external 10kΩ pullups.
+// AiEsp32RotaryEncoder rotaryEncoder3 = AiEsp32RotaryEncoder(ROTARY_ENCODER3_A_PIN, ROTARY_ENCODER3_B_PIN, ROTARY_ENCODER3_BUTTON_PIN, ROTARY_ENCODER_VCC_PIN, ROTARY_ENCODER_STEPS);
 
 void rotary_onButtonClick(int btnNum)
 {
@@ -96,23 +101,14 @@ void rotary_loop()
 	{
 		rotary_onButtonClick(2);
 	}
-  //rot 3
-  if (rotaryEncoder3.encoderChanged())
-	{
-		//Serial.print("Value3: ");
-		//Serial.println(rotaryEncoder3.readEncoder());
-	}
-	if (rotaryEncoder3.isEncoderButtonClicked())
-	{
-		rotary_onButtonClick(3);
-	}
+  // Encoder 3 disabled
 }
 
 void IRAM_ATTR readEncoderISR()
 {
 	rotaryEncoder1.readEncoder_ISR();
   rotaryEncoder2.readEncoder_ISR();
-  rotaryEncoder3.readEncoder_ISR();
+  // Encoder 3 disabled
 }
 
 
@@ -281,26 +277,27 @@ void setup()
   Serial.begin(115200);
   delay(100);
 
+  // Cap each touchRead's measurement window. Default meas_cycle is 0x7FFF (~1 ms);
+  // dropping it to 0x1000 caps a single read at ~250 µs even when the pad is
+  // floating (T8/T9 on GPIO 33/32 have no internal pullup). v2-only API.
+  touchSetCycles(0x1000, 0x1000);
+
   EEPROM.begin(EEPROM_SIZE);
   loadCalibrationFromEEPROM();
 
-  // rotary encoders
+  // Rotary encoders 1 & 2 (encoder 3 disabled — see top of file)
   rotaryEncoder1.begin();
   rotaryEncoder1.setup(readEncoderISR);
   rotaryEncoder2.begin();
   rotaryEncoder2.setup(readEncoderISR);
-  rotaryEncoder3.begin();
-  rotaryEncoder3.setup(readEncoderISR);
 
   bool circleValues = false;
   rotaryEncoder1.setBoundaries(0, 360, circleValues);
   rotaryEncoder2.setBoundaries(0, 360, circleValues);
-  rotaryEncoder3.setBoundaries(0, 360, circleValues);
 
   int acceleration = 250;
   rotaryEncoder1.setAcceleration(acceleration);
   rotaryEncoder2.setAcceleration(acceleration);
-  rotaryEncoder3.setAcceleration(acceleration);
 
   // buttons
   pinMode(BUTTON1_PIN, INPUT_PULLUP);
@@ -348,30 +345,27 @@ void loop()
 
   rotary_loop();
 
-  // Current values for each sensor
-  for (int i = 0; i < 8; i++) {
-    raw[i] = touchRead(sensorPins[i]);
-    p1[i] = raw[i];
+  // Rotating touch read: one pin per loop iteration. Per-pin refresh ~6Hz at
+  // delay(20) — plenty for human-interaction smoothing. Each pin's smoothing/
+  // baseline only updates on the loop that reads it.
+  static int touchIdx = 0;
+  raw[touchIdx] = touchRead(sensorPins[touchIdx]);
+  p1[touchIdx] = raw[touchIdx];
 
-    // Glitch detector
-    if (abs(p3[i] - p1[i]) < 5) {
-      if (abs(p2[i] - p3[i]) > 3) {
-        p2[i] = p3[i];
-      }
+  // Glitch detector for this pin only
+  if (abs(p3[touchIdx] - p1[touchIdx]) < 5) {
+    if (abs(p2[touchIdx] - p3[touchIdx]) > 3) {
+      p2[touchIdx] = p3[touchIdx];
     }
-
-    // Smooth the de-glitched data
-    smoothed[i] = p3[i] * (1 - dataSmoothingFactor) + smoothed[i] * dataSmoothingFactor;
-
-    // Dynamic baseline tracking
-    if (count > 50) {
-      baseline[i] = p3[i] * (1 - baselineSmoothingFactor) + baseline[i] * baselineSmoothingFactor;
-    }
-
-    // Shift the history
-    p3[i] = p2[i];
-    p2[i] = p1[i];
   }
+
+  smoothed[touchIdx] = p3[touchIdx] * (1 - dataSmoothingFactor) + smoothed[touchIdx] * dataSmoothingFactor;
+  if (count > 50) {
+    baseline[touchIdx] = p3[touchIdx] * (1 - baselineSmoothingFactor) + baseline[touchIdx] * baselineSmoothingFactor;
+  }
+  p3[touchIdx] = p2[touchIdx];
+  p2[touchIdx] = p1[touchIdx];
+  touchIdx = (touchIdx + 1) & 7;
 
   count++;
 
@@ -395,20 +389,21 @@ void loop()
   if (btn1Pulse > 0) btn1Pulse--;
   if (btn2Pulse > 0) btn2Pulse--;
 
-  // Output mapped values (0–360)
-  String output = "";
+  // Output mapped values (0–360) — single snprintf + one write call.
+  // Avoids String heap churn and collapses ~14 print() calls into one TX.
+  int v[8];
   for (int i = 0; i < 8; i++) {
-    output += String(constrain(map(smoothed[i], maxValues[i], minValues[i], 0, rangeMax), 0, rangeMax));
-    if (i < 7) output += ",";
+    v[i] = constrain(map(smoothed[i], maxValues[i], minValues[i], 0, rangeMax), 0, rangeMax);
   }
+  char buf[96];
+  int len = snprintf(buf, sizeof(buf),
+    "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%ld,%ld,%d\n",
+    v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7],
+    btn1Val, btn2Val,
+    rotaryEncoder1.readEncoder(),
+    rotaryEncoder2.readEncoder(),
+    0); // encoder 3 disabled — channel 12 always 0
+  if (len > 0) Serial.write((const uint8_t*)buf, len);
 
-  Serial.print(output);
-  Serial.print(",");
-  Serial.print(btn1Val); // button 1 (channel 8)
-  Serial.print(",");
-  Serial.print(btn2Val); // button 2 (channel 9)
-  Serial.print(",");
-  Serial.println(String(rotaryEncoder1.readEncoder()) + "," + String(rotaryEncoder2.readEncoder()) + "," + String(rotaryEncoder3.readEncoder()));
-
-  delay(5); // ~200Hz output; smooth data smoothing covers any micro-jitter
+  delay(20); // ~50Hz output. Per-channel touch refresh ~6Hz (one pin per loop × 8 pins).
 }
