@@ -105,6 +105,19 @@
             width: 100%;
             height: 100%;
         }
+        /* Lightweight grain overlay — tiled SVG noise composited on the GPU.
+           No JS per-frame cost. Toggle by setting display: block / none. */
+        #grainOverlay {
+            display: none;
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 5;
+            mix-blend-mode: overlay;
+            opacity: 0.18;
+            background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+            background-size: 160px 160px;
+        }
         #canvasContainer canvas {
             display: block;
             width: 100% !important;
@@ -292,6 +305,10 @@
                             <input type="checkbox" id="randomResultVizCheckbox">
                             <label for="randomResultVizCheckbox" style="font-size:11px;color:#888;">Random per reading (installation mode)</label>
                         </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                        <input type="checkbox" id="grainOverlayCheckbox">
+                        <label for="grainOverlayCheckbox" style="font-size:11px;color:#888;">Grain overlay</label>
                     </div>
                     <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;cursor:pointer;" id="vizToggleHeader">
                         <input type="checkbox" id="showVizToggles">
@@ -677,6 +694,8 @@
     <!-- ── Canvas area ── -->
     <div id="canvasArea">
         <div id="canvasContainer"></div>
+        <!-- Lightweight grain overlay — pure CSS, no per-frame cost -->
+        <div id="grainOverlay"></div>
     </div>
 
 </div><!-- /appShell -->
@@ -1129,6 +1148,9 @@
         const randomResultVizCheckbox = document.getElementById('randomResultVizCheckbox');
         let   randomLiveViz   = false;  // pick a random Data Read viz per reading (installation mode)
         let   randomResultViz = false;  // pick a random Results viz per reading (installation mode)
+        const grainOverlayCheckbox = document.getElementById('grainOverlayCheckbox');
+        const grainOverlayEl       = document.getElementById('grainOverlay');
+        let   grainOverlay = false;
         const installationModeCheckbox  = document.getElementById('installationModeCheckbox');
         const hideGlitchCursorCheckbox      = document.getElementById('hideGlitchCursorCheckbox');
         const allowClickFullscreenCheckbox  = document.getElementById('allowClickFullscreenCheckbox');
@@ -1356,6 +1378,7 @@
                 printServerUrl: printServerUrl.value,
                 randomLiveViz: randomLiveVizCheckbox.checked,
                 randomResultViz: randomResultVizCheckbox.checked,
+                grainOverlay: grainOverlayCheckbox.checked,
                 triggerSensors: triggerSensorsInput.value,
                 triggerMinCount: triggerMinCountInput.value,
                 triggerThreshold: triggerThresholdInput.value,
@@ -1442,6 +1465,9 @@
                     randomLiveViz   = randomLiveVizCheckbox.checked;
                     randomResultVizCheckbox.checked = settings.randomResultViz === true;
                     randomResultViz = randomResultVizCheckbox.checked;
+                    grainOverlayCheckbox.checked = settings.grainOverlay === true;
+                    grainOverlay = grainOverlayCheckbox.checked;
+                    if (grainOverlayEl) grainOverlayEl.style.display = grainOverlay ? 'block' : 'none';
                     if (settings.triggerSensors) triggerSensorsInput.value = settings.triggerSensors;
                     if (settings.triggerMinCount) { triggerMinCountInput.value = settings.triggerMinCount; TRIGGER_MIN_COUNT = parseInt(settings.triggerMinCount, 10); }
                     if (settings.triggerThreshold) { triggerThresholdInput.value = settings.triggerThreshold; TRIGGER_THRESHOLD = parseInt(settings.triggerThreshold, 10); }
@@ -7371,6 +7397,11 @@
         });
         randomResultVizCheckbox.addEventListener('change', (e) => {
             randomResultViz = e.target.checked; saveSettings();
+        });
+        grainOverlayCheckbox.addEventListener('change', (e) => {
+            grainOverlay = e.target.checked;
+            if (grainOverlayEl) grainOverlayEl.style.display = grainOverlay ? 'block' : 'none';
+            saveSettings();
         });
 
         glitchEnabledCheckbox.addEventListener('change', (e) => {
