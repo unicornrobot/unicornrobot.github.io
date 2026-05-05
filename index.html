@@ -280,10 +280,18 @@
                     <div style="margin-bottom:8px;">
                         <label for="liveVizSelect" style="display:block; margin-bottom:3px;">Data Read</label>
                         <select id="liveVizSelect" style="width:100%;"></select>
+                        <div style="display:flex;align-items:center;gap:6px;margin-top:3px;">
+                            <input type="checkbox" id="randomLiveVizCheckbox">
+                            <label for="randomLiveVizCheckbox" style="font-size:11px;color:#888;">Random per reading (installation mode)</label>
+                        </div>
                     </div>
                     <div style="margin-bottom:8px;">
                         <label for="vizSelect" style="display:block; margin-bottom:3px;">Results</label>
                         <select id="vizSelect" style="width:100%;"></select>
+                        <div style="display:flex;align-items:center;gap:6px;margin-top:3px;">
+                            <input type="checkbox" id="randomResultVizCheckbox">
+                            <label for="randomResultVizCheckbox" style="font-size:11px;color:#888;">Random per reading (installation mode)</label>
+                        </div>
                     </div>
                     <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;cursor:pointer;" id="vizToggleHeader">
                         <input type="checkbox" id="showVizToggles">
@@ -1117,6 +1125,10 @@
         const printVizSelect      = document.getElementById('printVizSelect');
         let   printIncludeFortune = true;
         let   printVizKey         = ''; // empty = use whatever's currently displayed
+        const randomLiveVizCheckbox   = document.getElementById('randomLiveVizCheckbox');
+        const randomResultVizCheckbox = document.getElementById('randomResultVizCheckbox');
+        let   randomLiveViz   = false;  // pick a random Data Read viz per reading (installation mode)
+        let   randomResultViz = false;  // pick a random Results viz per reading (installation mode)
         const installationModeCheckbox  = document.getElementById('installationModeCheckbox');
         const hideGlitchCursorCheckbox      = document.getElementById('hideGlitchCursorCheckbox');
         const allowClickFullscreenCheckbox  = document.getElementById('allowClickFullscreenCheckbox');
@@ -1342,6 +1354,8 @@
                 printIncludeFortune: printIncludeFortuneCheckbox.checked,
                 printVizKey: printVizKey,
                 printServerUrl: printServerUrl.value,
+                randomLiveViz: randomLiveVizCheckbox.checked,
+                randomResultViz: randomResultVizCheckbox.checked,
                 triggerSensors: triggerSensorsInput.value,
                 triggerMinCount: triggerMinCountInput.value,
                 triggerThreshold: triggerThresholdInput.value,
@@ -1424,6 +1438,10 @@
                     printIncludeFortune = printIncludeFortuneCheckbox.checked;
                     printVizKey = settings.printVizKey || '';
                     if (settings.printServerUrl) printServerUrl.value = settings.printServerUrl;
+                    randomLiveVizCheckbox.checked   = settings.randomLiveViz   === true;
+                    randomLiveViz   = randomLiveVizCheckbox.checked;
+                    randomResultVizCheckbox.checked = settings.randomResultViz === true;
+                    randomResultViz = randomResultVizCheckbox.checked;
                     if (settings.triggerSensors) triggerSensorsInput.value = settings.triggerSensors;
                     if (settings.triggerMinCount) { triggerMinCountInput.value = settings.triggerMinCount; TRIGGER_MIN_COUNT = parseInt(settings.triggerMinCount, 10); }
                     if (settings.triggerThreshold) { triggerThresholdInput.value = settings.triggerThreshold; TRIGGER_THRESHOLD = parseInt(settings.triggerThreshold, 10); }
@@ -2047,6 +2065,15 @@
             if (isCollecting) return;
 
             hideError();
+            // Random Data Read viz pick (installation mode only)
+            if (isInstallationMode && randomLiveViz) {
+                const liveEnabled = vizRegistry.live.filter(v => v.enabled);
+                if (liveEnabled.length > 0) {
+                    const pick = liveEnabled[Math.floor(Math.random() * liveEnabled.length)];
+                    currentLiveVisualization = pick.key;
+                    if (liveVizSelect) liveVizSelect.value = pick.key;
+                }
+            }
             isProcessing = false;
             collectedData = [];
             // Reset expected length for this specific collection run
@@ -2117,6 +2144,17 @@
             isCollecting = false;
             isWatching = false;
             clearTimeout(collectionTimerId); // Clear timer in case stopped manually
+
+            // Random Results viz pick (installation mode only)
+            if (isInstallationMode && randomResultViz) {
+                const resultsEnabled = vizRegistry.results.filter(v => v.enabled);
+                if (resultsEnabled.length > 0) {
+                    const pick = resultsEnabled[Math.floor(Math.random() * resultsEnabled.length)];
+                    currentVisualization = pick.key;
+                    if (vizSelect) vizSelect.value = pick.key;
+                    if (p5Instance) p5Instance._tileCacheDirty = true;
+                }
+            }
             if (p5Instance) p5Instance.updateSensorTones(null); // silence tones
             if (p5Instance) p5Instance.updateRadioTuning(null);  // silence radio audio
             if (p5Instance) p5Instance.updateRadioHarmonicTone(null);
@@ -7327,6 +7365,13 @@
         });
 
         printServerUrl.addEventListener('change', () => saveSettings());
+
+        randomLiveVizCheckbox.addEventListener('change', (e) => {
+            randomLiveViz = e.target.checked; saveSettings();
+        });
+        randomResultVizCheckbox.addEventListener('change', (e) => {
+            randomResultViz = e.target.checked; saveSettings();
+        });
 
         glitchEnabledCheckbox.addEventListener('change', (e) => {
             glitchEnabled = e.target.checked; saveSettings();
