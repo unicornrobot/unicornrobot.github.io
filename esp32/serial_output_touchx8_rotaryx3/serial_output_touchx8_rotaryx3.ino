@@ -366,7 +366,6 @@ void loop()
   p3[touchIdx] = p2[touchIdx];
   p2[touchIdx] = p1[touchIdx];
   touchIdx = (touchIdx + 1) & 7;
-
   count++;
 
   // Read buttons — detect falling edge with debounce, then hold pulse high
