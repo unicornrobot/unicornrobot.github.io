@@ -596,6 +596,26 @@
                         </div>
                         <div id="deviceConfigRows"></div>
                     </div>
+
+                    <!-- Touch sensor calibration commands → ESP32 over serial -->
+                    <div style="border-top:1px solid #222; margin-top:8px; padding-top:6px;">
+                        <div style="font-size:10px;color:#555;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.08em;">Touch Calibration</div>
+                        <div style="display:flex; gap:4px; margin-bottom:4px;">
+                            <button id="calBaselineBtn" title="3s no-touch baseline" style="flex:1; padding:4px 6px; font-size:11px;">Baseline (b)</button>
+                            <button id="calMaxTouchBtn" title="3s full-touch sample" style="flex:1; padding:4px 6px; font-size:11px;">Max Touch (m)</button>
+                        </div>
+                        <div style="display:flex; gap:4px; margin-bottom:4px;">
+                            <button id="calPrintBtn" title="Print current cal to console" style="flex:1; padding:4px 6px; font-size:11px;">Print (p)</button>
+                            <button id="calResetBtn" title="Reset to firmware defaults" style="flex:1; padding:4px 6px; font-size:11px; background:#3b0f0f; color:#f87171; border-color:#4d1515;">Reset (r)</button>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:4px; margin-bottom:4px;">
+                            <label style="font-size:11px; flex:0 0 auto;">Step</label>
+                            <input type="number" id="calNudgeStep" value="1" min="1" max="20" style="width:40px; font-size:11px;">
+                            <button id="calNudgeUpBtn" title="Less sensitive (+N)" style="flex:1; padding:4px 6px; font-size:11px;">+ Less Sens</button>
+                            <button id="calNudgeDownBtn" title="More sensitive (-N)" style="flex:1; padding:4px 6px; font-size:11px;">− More Sens</button>
+                        </div>
+                        <div id="calStatus" style="font-size:10px; color:#555; min-height:14px; text-align:center;"></div>
+                    </div>
                 </div>
             </div>
 
@@ -5044,6 +5064,29 @@
                         if (hideGlitchCursor) p.canvas.style.cursor = '';
                     }
 
+                    // ── Click on results screen → fade out and return to waiting ──
+                    // Works in both installation and manual mode. In installation
+                    // mode the waiting scene plays animated; in manual mode it
+                    // sits idle until the user starts the next collection.
+                    if (collectedData.length > 0 && !isCollecting && !isWatching && !isProcessing) {
+                        const _fade = document.createElement('div');
+                        _fade.style.cssText = 'position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity 0.6s ease;z-index:9999;';
+                        document.body.appendChild(_fade);
+                        requestAnimationFrame(() => { _fade.style.opacity = '1'; });
+                        setTimeout(() => {
+                            isWatching = true;
+                            collectedData = [];
+                            isCollecting = false;
+                            if (p5Instance) {
+                                p5Instance._tileCacheDirty = true;
+                                p5Instance.loop();
+                            }
+                            _fade.style.opacity = '0';
+                            setTimeout(() => _fade.remove(), 650);
+                        }, 650);
+                        return;
+                    }
+
                     // Check if already in fullscreen *on this element* or any element
                     if (!allowClickFullscreen) return;
                     if (!document.fullscreenElement) {
@@ -7470,6 +7513,47 @@
 
         applyChannelCountButton.addEventListener('click', () => {
             applyChannelCount(parseInt(deviceChannelCountInput.value, 10));
+        });
+
+        // ── Touch calibration: send commands to ESP32 over serial ──
+        const calStatus = document.getElementById('calStatus');
+        async function sendSerialCommand(cmd) {
+            if (!port || !port.writable) {
+                calStatus.textContent = 'Not connected';
+                calStatus.style.color = '#f87171';
+                return false;
+            }
+            const writer = port.writable.getWriter();
+            try {
+                await writer.write(new TextEncoder().encode(cmd + '\n'));
+                calStatus.textContent = `Sent: ${cmd}`;
+                calStatus.style.color = '#86efac';
+                return true;
+            } catch (e) {
+                calStatus.textContent = `Send failed: ${e.message}`;
+                calStatus.style.color = '#f87171';
+                return false;
+            } finally {
+                try { writer.releaseLock(); } catch(e) {}
+                setTimeout(() => { calStatus.textContent = ''; }, 4000);
+            }
+        }
+
+        document.getElementById('calBaselineBtn')?.addEventListener('click', () => sendSerialCommand('b'));
+        document.getElementById('calMaxTouchBtn')?.addEventListener('click', () => sendSerialCommand('m'));
+        document.getElementById('calPrintBtn')   ?.addEventListener('click', () => sendSerialCommand('p'));
+        document.getElementById('calResetBtn')   ?.addEventListener('click', () => {
+            if (confirm('Reset calibration to firmware defaults? This will clear EEPROM.')) {
+                sendSerialCommand('r');
+            }
+        });
+        document.getElementById('calNudgeUpBtn')?.addEventListener('click', () => {
+            const step = Math.max(1, parseInt(document.getElementById('calNudgeStep').value, 10) || 1);
+            sendSerialCommand(`+${step}`);
+        });
+        document.getElementById('calNudgeDownBtn')?.addEventListener('click', () => {
+            const step = Math.max(1, parseInt(document.getElementById('calNudgeStep').value, 10) || 1);
+            sendSerialCommand(`-${step}`);
         });
         // ------------------------------------
 
